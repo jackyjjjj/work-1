@@ -81,3 +81,62 @@
 - 实现 whole-image prototype baseline。
 - 实现 ROI / pseudo-mask region prototype baseline。
 - 后续每次修改继续追加日志到本文件。
+## 2026-05-02 21:35 +08:00
+
+### 修改目的
+
+在假定 MVTec-FS 数据集已经下载到本地的前提下，增加数据集 manifest 构建能力。目标是在本地或服务器上把 MVTec-FS 目录整理成项目统一的 CSV manifest，供后续 few-shot episode 采样、DINOv2 baseline 和 Auto-Mask MVREC 方法使用。
+
+### 涉及文件
+
+- `README.md`
+- `data/README.md`
+- `scripts/build_mvtec_fs_manifest.py`
+- `scripts/check_mvtec_fs_builder.py`
+- `src/lg_fdc/data/mvtec_fs.py`
+- `tests/test_mvtec_fs_manifest.py`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `MVTecFSBuildConfig` 和 `build_mvtec_fs_manifest()`。
+- 支持递归扫描本地 MVTec-FS 图片文件。
+- 支持读取同名 LabelMe JSON 标注，提取缺陷类别、polygon 数量和整体 bbox。
+- 生成统一 CSV schema：`image_path,label,split,mask_path,object_name,defect_name,annotation_path,bbox,polygon_count`。
+- 在没有官方 split 文件的情况下，按缺陷类别做确定性 train/val/test 划分。
+- 新增 `scripts/build_mvtec_fs_manifest.py` 作为命令行入口。
+- 新增 `scripts/check_mvtec_fs_builder.py` 作为不依赖 pytest 的自检脚本，方便服务器环境直接验证。
+- 更新 README 和 data 文档，写明假定数据集在 `/home/jack/datasets/MVTec-FS` 时如何构建 manifest。
+
+### 验证命令和结果
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_mvtec_fs_builder.py
+```
+
+结果：通过，输出 `mvtec-fs-builder-ok`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/smoke_test.py
+```
+
+结果：通过，`accuracy=1.000`、`balanced_accuracy=1.000`、`macro_f1=1.000`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/run_prototype_baseline.py --manifest data/example_manifest.csv --n-way 3 --k-shot 2 --q-queries 2 --episodes 5 --feature-source metadata --feature-dim 3
+```
+
+结果：通过，5 个 episode 的 `accuracy`、`balanced_accuracy`、`macro_f1` 均值均为 `1.0`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m pytest tests/test_mvtec_fs_manifest.py tests/test_prototype_smoke.py
+```
+
+结果：未运行，当前 conda 环境 `work-1` 没有安装 `pytest`，报错 `No module named pytest`。这不影响脚本级验证。
+
+### 后续待办
+
+- 用户下载或同步 MVTec-FS 后，运行 `scripts/build_mvtec_fs_manifest.py` 生成真实 manifest。
+- 用真实 manifest 先跑 hash-feature pipeline check。
+- 接入真实 DINOv2 特征缓存，替换 hash feature。
+- 基于 bbox/annotation_path 实现 ROI prototype baseline。

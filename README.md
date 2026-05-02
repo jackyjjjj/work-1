@@ -39,6 +39,39 @@ For real experiments, install the research dependencies in that environment when
 /home/jack/miniconda3/bin/conda run -n work-1 pip install -e ".[research,dev]"
 ```
 
+
+## Local Dataset Setup
+
+Assume MVTec-FS has been downloaded outside Git, for example:
+
+```bash
+/home/jack/datasets/MVTec-FS
+```
+
+Build the project manifest:
+
+```bash
+mkdir -p data/manifests
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/build_mvtec_fs_manifest.py \
+  --dataset-root /home/jack/datasets/MVTec-FS \
+  --output data/manifests/mvtec_fs.csv
+```
+
+Then run a quick hash-feature baseline to verify the manifest and episode sampler:
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/run_prototype_baseline.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --split train \
+  --n-way 5 \
+  --k-shot 1 \
+  --q-queries 5 \
+  --episodes 20 \
+  --feature-source hash \
+  --feature-dim 64
+```
+
+Hash features are only a pipeline check. Real experiments should use cached DINOv2 or Alpha-CLIP features.
 ## Quick Checks
 
 Dependency-light smoke test:
