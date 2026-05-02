@@ -216,3 +216,20 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Research artifacts
+outputs/
+runs/
+checkpoints/
+wandb/
+mlruns/
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+
+# Keep dataset directories local while allowing documentation.
+data/*
+!data/README.md
+!data/.gitkeep
+!data/example_manifest.csv

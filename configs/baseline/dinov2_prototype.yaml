@@ -1,0 +1,27 @@
+experiment:
+  name: dinov2_prototype_baseline
+  seed: 42
+
+data:
+  dataset: mvtec_fs
+  manifest: data/manifests/mvtec_fs_train.csv
+  image_root: data/mvtec_fs
+
+episode:
+  n_way: 5
+  k_shot: 1
+  q_queries: 5
+  episodes: 600
+
+features:
+  extractor: dinov2
+  cache_dir: outputs/features/dinov2
+  layer: last
+  pooling: global
+
+classifier:
+  type: prototype
+  metric: cosine
+
+evaluation:
+  metrics: [accuracy, macro_f1, balanced_accuracy]
