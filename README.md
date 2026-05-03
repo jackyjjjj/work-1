@@ -143,3 +143,22 @@ python scripts/run_prototype_baseline.py \
 ```
 
 For `dinov2_vits14`, the feature dimension is usually `384`. If you switch to `dinov2_vitb14`, use `768`.
+## Few-Shot Grid Runner
+
+After extracting cached DINOv2 features, run the standard grid and save both JSON and Markdown results:
+
+```bash
+python scripts/run_fewshot_grid.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --split train \
+  --grid 5:1,5:3,5:5,10:1,10:5 \
+  --q-queries 5 \
+  --episodes 200 \
+  --feature-source cached \
+  --feature-file outputs/features/dinov2/mvtec_fs_train.jsonl \
+  --feature-dim 384 \
+  --output-json outputs/results/dinov2_prototype_grid.json \
+  --output-md outputs/results/dinov2_prototype_grid.md
+```
+
+The Markdown file can be copied directly into experiment notes or a paper draft.

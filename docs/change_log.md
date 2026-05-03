@@ -256,3 +256,40 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 提取 MVTec-FS train split 的 DINOv2 特征。
 - 用 `--feature-source cached` 跑 5-way 1-shot/5-shot baseline。
 - 如果效果正常，再做 ROI/pseudo-mask region feature baseline。
+
+## 2026-05-03 01:35 +08:00
+
+### 修改目的
+
+新增 few-shot grid runner，自动运行多组 N-way/K-shot prototype baseline，并输出 JSON 与 Markdown 实验表，方便整理 DINOv2 whole-image baseline 的第一张实验表。
+
+### 涉及文件
+
+- `scripts/run_fewshot_grid.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `scripts/run_fewshot_grid.py`。
+- 支持 `--grid 5:1,5:3,5:5,10:1,10:5` 形式一次性配置多组实验。
+- 支持 `metadata`、`hash`、`cached` 三种特征来源。
+- 对每组实验输出 Accuracy、Balanced Accuracy、Macro-F1 的均值和标准差。
+- 自动保存 JSON 结果和 Markdown 表格。
+- README 增加服务器运行命令。
+
+### 验证命令和结果
+
+轻量级自检命令：
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/run_fewshot_grid.py --manifest data/example_manifest.csv --split train --grid 3:1,3:2 --q-queries 2 --episodes 3 --feature-source metadata --feature-dim 3 --output-json outputs/tmp/grid_check.json --output-md outputs/tmp/grid_check.md
+```
+
+预期：生成 `outputs/tmp/grid_check.json` 和 `outputs/tmp/grid_check.md`。
+
+### 后续待办
+
+- 在服务器上用 DINOv2 cached features 跑标准 grid：`5:1,5:3,5:5,10:1,10:5`。
+- 将输出的 Markdown 表格作为 DINOv2 whole-image prototype baseline 的第一版实验表。
+- 下一步实现 ROI / pseudo-mask region feature baseline，和 whole-image baseline 对比。
