@@ -16,6 +16,8 @@ episode:
 features:
   extractor: dinov2
   cache_dir: outputs/features/dinov2
+  train_cache: outputs/features/dinov2/mvtec_fs_train.jsonl
+  test_cache: outputs/features/dinov2/mvtec_fs_test.jsonl
   layer: last
   pooling: global
 

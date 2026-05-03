@@ -48,14 +48,24 @@ Assume MVTec-FS has been downloaded outside Git, for example:
 /home/jack/datasets/MVTec-FS
 ```
 
+If the dataset directory contains `image.tar.001` to `image.tar.012`, extract the images first:
+
+```bash
+cd /home/jack/datasets/MVTec-FS
+cat image.tar.* | tar -xvf -
+```
+
 Build the project manifest:
 
 ```bash
+cd /home/jack/workspace/work-1
 mkdir -p data/manifests
 /home/jack/miniconda3/bin/conda run -n work-1 python scripts/build_mvtec_fs_manifest.py \
   --dataset-root /home/jack/datasets/MVTec-FS \
   --output data/manifests/mvtec_fs.csv
 ```
+
+If the generated CSV only contains `com_sample.jpg` and `data_details.png`, the archive has not been extracted or `--dataset-root` points to the wrong folder.
 
 Then run a quick hash-feature baseline to verify the manifest and episode sampler:
 
@@ -100,3 +110,36 @@ Prototype baseline on the example manifest:
 3. Generate pseudo defect masks with anomaly localization models such as PatchCore or AnomalyDINO.
 4. Implement region-context prototype learning.
 5. Compare against MVREC-like and anomaly-detection-plus-classifier baselines.
+## DINOv2 Whole-Image Baseline
+
+After the manifest is correct, extract real DINOv2 visual features:
+
+```bash
+mkdir -p outputs/features/dinov2
+python scripts/extract_dinov2_features.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --image-root /home/jack/datasets/MVTec-FS \
+  --split train \
+  --output outputs/features/dinov2/mvtec_fs_train.jsonl \
+  --model dinov2_vits14 \
+  --batch-size 16 \
+  --device auto \
+  --overwrite
+```
+
+Then run the prototype baseline with cached DINOv2 features:
+
+```bash
+python scripts/run_prototype_baseline.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --split train \
+  --n-way 5 \
+  --k-shot 1 \
+  --q-queries 5 \
+  --episodes 200 \
+  --feature-source cached \
+  --feature-file outputs/features/dinov2/mvtec_fs_train.jsonl \
+  --feature-dim 384
+```
+
+For `dinov2_vits14`, the feature dimension is usually `384`. If you switch to `dinov2_vitb14`, use `768`.

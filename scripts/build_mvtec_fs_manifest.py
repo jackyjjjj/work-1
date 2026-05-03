@@ -15,7 +15,7 @@ def parse_args() -> argparse.Namespace:
     """解析 MVTec-FS manifest 构建参数。"""
 
     parser = argparse.ArgumentParser(description="Build a CSV manifest from a local MVTec-FS dataset.")
-    parser.add_argument("--dataset-root", required=True, help="Path to the downloaded MVTec-FS root.")
+    parser.add_argument("--dataset-root", required=True, help="Path to the extracted MVTec-FS root.")
     parser.add_argument(
         "--output",
         default="data/manifests/mvtec_fs.csv",
@@ -28,6 +28,11 @@ def parse_args() -> argparse.Namespace:
         "--absolute-paths",
         action="store_true",
         help="Store absolute image/annotation paths instead of paths relative to dataset root.",
+    )
+    parser.add_argument(
+        "--include-unannotated",
+        action="store_true",
+        help="Also include images without LabelMe JSON. Off by default to skip repository doc images.",
     )
     return parser.parse_args()
 
@@ -42,6 +47,7 @@ def main() -> None:
             test_ratio=args.test_ratio,
             seed=args.seed,
             absolute_paths=args.absolute_paths,
+            include_unannotated=args.include_unannotated,
         )
     )
     split_counts: dict[str, int] = {}

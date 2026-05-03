@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from lg_fdc.data.episodes import EpisodeConfig, sample_episode
 from lg_fdc.data.manifest import load_manifest
+from lg_fdc.features.cached import CachedFeatureExtractor
 from lg_fdc.features.simple import HashFeatureExtractor, MetadataFeatureExtractor
 from lg_fdc.pipelines.prototype_baseline import run_prototype_episode
 
@@ -29,12 +30,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--feature-source",
-        choices=["metadata", "hash"],
+        choices=["metadata", "hash", "cached"],
         default="metadata",
-        help="Use metadata feature vectors or deterministic hash placeholder features.",
+        help="Use metadata features, deterministic hash features, or cached features.",
     )
     parser.add_argument("--feature-dim", type=int, default=64)
     parser.add_argument("--feature-key", default="feature")
+    parser.add_argument("--feature-file", help="JSONL/CSV feature cache used when --feature-source cached.")
     parser.add_argument("--output", help="Optional JSON metrics output path.")
     return parser.parse_args()
 
@@ -90,6 +92,10 @@ def _build_extractor(args: argparse.Namespace):
 
     if args.feature_source == "metadata":
         return MetadataFeatureExtractor(feature_dim=args.feature_dim, key=args.feature_key)
+    if args.feature_source == "cached":
+        if not args.feature_file:
+            raise SystemExit("--feature-file is required when --feature-source cached")
+        return CachedFeatureExtractor(feature_path=args.feature_file, feature_dim=args.feature_dim)
     return HashFeatureExtractor(feature_dim=args.feature_dim)
 
 

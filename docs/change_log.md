@@ -140,3 +140,119 @@
 - 用真实 manifest 先跑 hash-feature pipeline check。
 - 接入真实 DINOv2 特征缓存，替换 hash feature。
 - 基于 bbox/annotation_path 实现 ROI prototype baseline。
+
+## 2026-05-03 00:20 +08:00
+
+### 修改目的
+
+修复 MVTec-FS manifest builder 在数据集未解压或 `--dataset-root` 指向 GitHub 仓库外层时，把 `com_sample.jpg`、`data_details.png` 等说明图片误识别为训练样本的问题。
+
+### 背景问题
+
+用户生成的 `mvtec_fs.csv` 只有两行：
+
+```csv
+com_sample.jpg,MVTec-FS,train,,unknown_object,MVTec-FS,,,0
+data_details.png,MVTec-FS,train,,unknown_object,MVTec-FS,,,0
+```
+
+这说明实际 MVTec-FS 图像还没有从 `image.tar.001` 到 `image.tar.012` 中解压，或者 `--dataset-root` 指向了未解压的仓库外层。
+
+### 涉及文件
+
+- `README.md`
+- `data/README.md`
+- `scripts/build_mvtec_fs_manifest.py`
+- `scripts/check_mvtec_fs_unextracted.py`
+- `src/lg_fdc/data/mvtec_fs.py`
+- `docs/change_log.md`
+
+### 主要改动
+
+- `build_mvtec_fs_manifest()` 默认只保留带 LabelMe JSON 标注的图片，跳过未标注说明图片。
+- 新增 `--include-unannotated` 参数，仅在用户明确需要时才纳入无 JSON 图片。
+- 检测到 `image.tar.*` 分卷但没有可用标注图片时，直接报清晰错误，提示先执行 `cat image.tar.* | tar -xvf -`。
+- 支持从路径中保留官方 `train` / `val` / `test` split；没有 split 信息时才自动划分。
+- 修正 LabelMe bbox 点类型判断，兼容 Python 3.10+。
+- 新增 `scripts/check_mvtec_fs_unextracted.py`，验证未解压数据集会给出明确错误提示。
+- 更新 README 和 `data/README.md`，补充 MVTec-FS 分卷解压说明和错误 manifest 排查说明。
+
+### 验证命令和结果
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_mvtec_fs_builder.py
+```
+
+结果：通过，输出 `mvtec-fs-builder-ok`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_mvtec_fs_unextracted.py
+```
+
+结果：通过，输出 `mvtec-fs-unextracted-check-ok`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/smoke_test.py
+```
+
+结果：通过，`accuracy=1.000`、`balanced_accuracy=1.000`、`macro_f1=1.000`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/run_prototype_baseline.py --manifest data/example_manifest.csv --n-way 3 --k-shot 2 --q-queries 2 --episodes 5 --feature-source metadata --feature-dim 3
+```
+
+结果：通过，示例 manifest baseline 正常输出 JSON 指标。
+
+### 后续待办
+
+- 在真实数据所在机器上先进入 MVTec-FS 目录执行 `cat image.tar.* | tar -xvf -`。
+- 重新运行 `scripts/build_mvtec_fs_manifest.py` 生成 manifest。
+- 检查 manifest 中是否有多个缺陷 label，而不是只有 `MVTec-FS`。
+- 如果真实 MVTec-FS 解压后的目录结构和当前假设不同，再根据实际 `find` 输出调整 parser。
+
+## 2026-05-03 01:00 +08:00
+
+### 修改目的
+
+接入第一条有意义的真实视觉 baseline：DINOv2 whole-image feature + prototype classifier。之前 `--feature-source hash` 只用于数据流检查，准确率接近 5-way 随机水平是正常现象。
+
+### 涉及文件
+
+- `src/lg_fdc/features/cached.py`
+- `src/lg_fdc/features/__init__.py`
+- `scripts/extract_dinov2_features.py`
+- `scripts/run_prototype_baseline.py`
+- `scripts/check_cached_feature_baseline.py`
+- `configs/baseline/dinov2_prototype.yaml`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `CachedFeatureExtractor`，支持从 JSONL/CSV 读取缓存特征。
+- `run_prototype_baseline.py` 新增 `--feature-source cached` 和 `--feature-file` 参数。
+- 新增 `scripts/extract_dinov2_features.py`，从 manifest 读取图像并用 Torch Hub DINOv2 提取 whole-image 特征。
+- 新增 `scripts/check_cached_feature_baseline.py`，不依赖 torch/PIL，用合成缓存特征验证 cached-feature pipeline。
+- 更新 DINOv2 baseline 配置，加入 train/test feature cache 路径。
+- README 增加 DINOv2 特征提取和 cached prototype baseline 运行命令。
+
+### 验证命令和结果
+
+轻量级自检命令：
+
+```bash
+python scripts/check_cached_feature_baseline.py
+```
+
+DINOv2 特征提取需要在服务器或安装了 `torch`、`torchvision`、`Pillow` 的环境中运行：
+
+```bash
+python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv --image-root /path/to/MVTec-FS --split train --output outputs/features/dinov2/mvtec_fs_train.jsonl --model dinov2_vits14 --overwrite
+```
+
+### 后续待办
+
+- 在服务器上安装或确认 `torch`、`torchvision`、`Pillow` 可用。
+- 提取 MVTec-FS train split 的 DINOv2 特征。
+- 用 `--feature-source cached` 跑 5-way 1-shot/5-shot baseline。
+- 如果效果正常，再做 ROI/pseudo-mask region feature baseline。
