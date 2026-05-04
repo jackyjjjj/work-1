@@ -383,3 +383,36 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 在服务器上生成 `dinov2_fusion_concat` 特征并跑 grid。
 - 可选扫描 weighted-sum 的 `alpha=0.25,0.5,0.75`。
 - 对比 whole-image、bbox/ROI、fusion 三张表，判断 region-context 融合是否成立。
+
+## 2026-05-04 01:20 +08:00
+
+### 修改目的
+
+将 DINOv2 whole-image、bbox/ROI、region-global fusion 相关 baseline 实验结果固化为正式实验记录，便于后续论文写作、开题汇报和方法设计对比。
+
+### 涉及文件
+
+- `experiments/dinov2_baselines.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `experiments/dinov2_baselines.md`。
+- 汇总 DINOv2 whole-image prototype、bbox/ROI prototype、concat fusion、weighted-sum alpha 0.25/0.5/0.75 的实验结果。
+- 增加 Accuracy 和 Macro-F1 总表。
+- 增加 BBox/ROI vs Whole、Best Fusion vs Whole、Best Fusion vs BBox/ROI 的 delta 分析。
+- 写出当前实验结论和可用于论文 motivation 的中英文表述。
+- 明确下一阶段应从 LabelMe bbox 过渡到 anomaly heatmap 生成的 pseudo bbox / pseudo mask。
+
+### 当前关键结论
+
+- Whole-image DINOv2 prototype 是强 baseline，但不是最优。
+- BBox/ROI 在 1-shot 下会丢失上下文，在 5-shot 下更有优势。
+- Region-global fusion 在所有设置下稳定超过 whole-image 和 bbox/ROI。
+- Concat fusion 是当前最稳定的简单融合策略。
+
+### 后续待办
+
+- 开始实现 anomaly heatmap -> pseudo bbox / pseudo mask。
+- 先做 pseudo bbox ROI prototype，再和 GT bbox ROI、fusion baseline 对比。
+- 进一步分析 per-class F1 和 confusion matrix，找出最受益/最困难的缺陷类别。
