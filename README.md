@@ -247,3 +247,47 @@ python scripts/fuse_feature_cache.py \
 ```
 
 Use fusion results to test whether context-rich whole-image features and defect-focused ROI features complement each other.
+
+## Pseudo-BBox From Anomaly Heatmaps
+
+The next stage replaces GT LabelMe bbox with pseudo bbox generated from anomaly heatmaps. Any localizer can be used if it writes JSONL like this:
+
+```json
+{"image_path":"relative/path.png","image_width":512,"image_height":512,"heatmap":[[0.0,0.1],[0.8,0.9]]}
+```
+
+Build a pseudo-bbox manifest:
+
+```bash
+python scripts/build_pseudo_bbox_manifest.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --heatmap-file outputs/heatmaps/example_heatmaps.jsonl \
+  --output data/manifests/mvtec_fs_pseudo_bbox.csv \
+  --percentile 0.90 \
+  --min-area-ratio 0.001 \
+  --component max-score \
+  --missing-policy error \
+  --overwrite
+```
+
+Default `--missing-policy error` stops if any manifest row has no heatmap, which avoids accidentally mixing GT LabelMe bbox into pseudo-bbox experiments. Use `--missing-policy clear` only for debugging incomplete heatmap caches.
+
+Then reuse the existing bbox DINOv2 extractor on the pseudo-bbox manifest:
+
+```bash
+mkdir -p outputs/features/dinov2_pseudo_bbox
+python scripts/extract_dinov2_features.py \
+  --manifest data/manifests/mvtec_fs_pseudo_bbox.csv \
+  --image-root /home/jack/datasets/MVTec-FS \
+  --split train \
+  --output outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl \
+  --model dinov2_vits14 \
+  --region bbox \
+  --bbox-padding 0.15 \
+  --min-crop-size 32 \
+  --batch-size 16 \
+  --device auto \
+  --overwrite
+```
+
+Finally run the same grid with `outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl`.

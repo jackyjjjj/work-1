@@ -416,3 +416,52 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 开始实现 anomaly heatmap -> pseudo bbox / pseudo mask。
 - 先做 pseudo bbox ROI prototype，再和 GT bbox ROI、fusion baseline 对比。
 - 进一步分析 per-class F1 和 confusion matrix，找出最受益/最困难的缺陷类别。
+
+## 2026-05-04 01:55 +08:00
+
+### 修改目的
+
+开始 pseudo-mask 阶段的第一步：实现通用的 anomaly heatmap -> pseudo bbox manifest 工具。这样后续 PatchCore、AnomalyDINO 或其它定位器只要输出 heatmap JSONL，就能转换成 pseudo bbox，并复用现有 DINOv2 bbox 特征提取与 few-shot grid runner。
+
+### 涉及文件
+
+- `scripts/build_pseudo_bbox_manifest.py`
+- `scripts/check_pseudo_bbox.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `scripts/build_pseudo_bbox_manifest.py`。
+- 输入原始 manifest 和 heatmap JSONL，输出替换 bbox 字段后的 pseudo-bbox manifest。
+- heatmap JSONL 要求包含 `image_path`、`heatmap`，建议包含 `image_width`、`image_height`。
+- 支持 percentile 阈值、最小区域比例、连通域选择策略 `largest` / `max-score`。
+- 新增 `--missing-policy`，默认缺失 heatmap 直接报错，避免 pseudo-bbox 实验中混入原始 GT bbox。
+- 输出新增字段：`bbox_source`、`pseudo_bbox_score`、`pseudo_bbox_area`。
+- 新增 `scripts/check_pseudo_bbox.py`，不依赖重模型，验证 heatmap -> bbox 和 CSV 输出逻辑。
+- README 增加 pseudo-bbox manifest 生成和复用 DINOv2 bbox extractor 的命令。
+
+### 验证命令和结果
+
+轻量级自检命令：
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox.py
+```
+
+结果：通过，输出 `pseudo-bbox-check-ok`。
+
+语法检查：
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/build_pseudo_bbox_manifest.py scripts/check_pseudo_bbox.py
+```
+
+结果：通过，无语法错误。
+
+### 后续待办
+
+- 实现或接入第一个 heatmap 生成器，例如 PatchCore 或 DINOv2 nearest-normal memory。
+- 生成 `outputs/heatmaps/*.jsonl`。
+- 构建 `data/manifests/mvtec_fs_pseudo_bbox.csv`。
+- 提取 DINOv2 pseudo-bbox 特征并跑 grid，与 GT bbox/ROI 对比。
