@@ -14,13 +14,16 @@ from lg_fdc.data.manifest import ImageRecord, load_manifest
 
 
 def parse_args() -> argparse.Namespace:
-    """解析 DINOv2 whole-image 特征提取参数。"""
+    """解析 DINOv2 特征提取参数。"""
 
-    parser = argparse.ArgumentParser(description="Extract DINOv2 whole-image features from a manifest.")
+    parser = argparse.ArgumentParser(description="Extract DINOv2 features from a manifest.")
     parser.add_argument("--manifest", required=True, help="CSV/JSONL manifest produced by build_mvtec_fs_manifest.py.")
     parser.add_argument("--image-root", required=True, help="Root directory used to resolve relative image_path values.")
     parser.add_argument("--output", required=True, help="Output JSONL feature cache path.")
     parser.add_argument("--split", default="train", help="Manifest split to extract. Use 'all' for all splits.")
+    parser.add_argument("--region", default="whole", choices=["whole", "bbox"], help="Feature region: whole image or bbox crop.")
+    parser.add_argument("--bbox-padding", type=float, default=0.15, help="Relative padding added around bbox crops.")
+    parser.add_argument("--min-crop-size", type=int, default=32, help="Minimum crop width/height in pixels for bbox mode.")
     parser.add_argument("--model", default="dinov2_vits14", help="Torch Hub DINOv2 model name.")
     parser.add_argument("--repo-or-dir", default="facebookresearch/dinov2", help="Torch Hub repo or local DINOv2 repo.")
     parser.add_argument("--source", default="github", choices=["github", "local"], help="Torch Hub source.")
@@ -57,7 +60,15 @@ def main() -> None:
 
     device = _resolve_device(args.device)
     transform = _build_transform(args.image_size, transforms)
-    dataset = ManifestImageDataset(records=records, image_root=Path(args.image_root), transform=transform, image_cls=Image)
+    dataset = ManifestImageDataset(
+        records=records,
+        image_root=Path(args.image_root),
+        transform=transform,
+        image_cls=Image,
+        region=args.region,
+        bbox_padding=args.bbox_padding,
+        min_crop_size=args.min_crop_size,
+    )
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -88,6 +99,8 @@ def main() -> None:
                         "split": record.split,
                         "object_name": record.object_name,
                         "defect_name": record.defect_name,
+                        "region": args.region,
+                        "crop_box": batch["crop_box"][idx],
                         "feature": feature.tolist(),
                     }
                     handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
@@ -96,17 +109,30 @@ def main() -> None:
 
     print(f"wrote features: {output_path}")
     print(f"records: {written}")
+    print(f"region: {args.region}")
     print(f"feature_dim: {feature_dim if feature_dim is not None else 'unknown'}")
 
 
 class ManifestImageDataset:
     """从 manifest 读取图片，返回 DINOv2 输入 tensor。"""
 
-    def __init__(self, records: list[ImageRecord], image_root: Path, transform: Any, image_cls: Any) -> None:
+    def __init__(
+        self,
+        records: list[ImageRecord],
+        image_root: Path,
+        transform: Any,
+        image_cls: Any,
+        region: str,
+        bbox_padding: float,
+        min_crop_size: int,
+    ) -> None:
         self.records = records
         self.image_root = image_root.expanduser().resolve()
         self.transform = transform
         self.image_cls = image_cls
+        self.region = region
+        self.bbox_padding = bbox_padding
+        self.min_crop_size = min_crop_size
 
     def __len__(self) -> int:
         return len(self.records)
@@ -115,7 +141,85 @@ class ManifestImageDataset:
         record = self.records[idx]
         image_path = _resolve_image_path(record.image_path, self.image_root)
         image = self.image_cls.open(image_path).convert("RGB")
-        return {"image": self.transform(image), "record": record}
+        crop_box = None
+        if self.region == "bbox":
+            crop_box = compute_padded_crop_box(
+                bbox_text=str(record.metadata.get("bbox") or ""),
+                image_size=image.size,
+                padding=self.bbox_padding,
+                min_crop_size=self.min_crop_size,
+            )
+            image = image.crop(crop_box)
+        return {"image": self.transform(image), "record": record, "crop_box": crop_box}
+
+
+def parse_bbox(bbox_text: str) -> tuple[float, float, float, float] | None:
+    """解析 x1,y1,x2,y2 格式 bbox；空 bbox 返回 None。"""
+
+    if not bbox_text.strip():
+        return None
+    parts = [part.strip() for part in bbox_text.replace(";", ",").split(",") if part.strip()]
+    if len(parts) != 4:
+        raise ValueError(f"Invalid bbox format: {bbox_text!r}; expected x1,y1,x2,y2")
+    x1, y1, x2, y2 = (float(part) for part in parts)
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError(f"Invalid bbox coordinates: {bbox_text!r}")
+    return x1, y1, x2, y2
+
+
+def compute_padded_crop_box(
+    bbox_text: str,
+    image_size: tuple[int, int],
+    padding: float,
+    min_crop_size: int,
+) -> tuple[int, int, int, int]:
+    """根据 bbox、padding 和最小尺寸计算 PIL crop box。"""
+
+    width, height = image_size
+    bbox = parse_bbox(bbox_text)
+    if bbox is None:
+        return (0, 0, width, height)
+
+    x1, y1, x2, y2 = bbox
+    box_w = x2 - x1
+    box_h = y2 - y1
+    pad_x = box_w * padding
+    pad_y = box_h * padding
+
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
+    crop_w = max(box_w + 2 * pad_x, float(min_crop_size))
+    crop_h = max(box_h + 2 * pad_y, float(min_crop_size))
+
+    left = cx - crop_w / 2.0
+    right = cx + crop_w / 2.0
+    top = cy - crop_h / 2.0
+    bottom = cy + crop_h / 2.0
+
+    left, right = _shift_into_bounds(left, right, width)
+    top, bottom = _shift_into_bounds(top, bottom, height)
+
+    left_i = max(0, min(width - 1, int(left)))
+    top_i = max(0, min(height - 1, int(top)))
+    right_i = max(left_i + 1, min(width, int(round(right))))
+    bottom_i = max(top_i + 1, min(height, int(round(bottom))))
+    return (left_i, top_i, right_i, bottom_i)
+
+
+def _shift_into_bounds(start: float, end: float, limit: int) -> tuple[float, float]:
+    """保持 crop 尺寸尽量不变，同时把区间移动到图像边界内。"""
+
+    if start < 0:
+        end -= start
+        start = 0.0
+    if end > limit:
+        start -= end - limit
+        end = float(limit)
+    if start < 0:
+        start = 0.0
+    if end > limit:
+        end = float(limit)
+    return start, end
 
 
 def _build_transform(image_size: int, transforms: Any) -> Any:
@@ -137,6 +241,7 @@ def _collate_batch(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "image": torch.stack([item["image"] for item in items], dim=0),
         "record": [item["record"] for item in items],
+        "crop_box": [item["crop_box"] for item in items],
     }
 
 

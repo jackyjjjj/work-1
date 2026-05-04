@@ -162,3 +162,40 @@ python scripts/run_fewshot_grid.py \
 ```
 
 The Markdown file can be copied directly into experiment notes or a paper draft.
+## DINOv2 BBox/ROI Baseline
+
+After the whole-image baseline, extract DINOv2 features from bbox crops inferred from LabelMe annotations:
+
+```bash
+mkdir -p outputs/features/dinov2_bbox
+python scripts/extract_dinov2_features.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --image-root /home/jack/datasets/MVTec-FS \
+  --split train \
+  --output outputs/features/dinov2_bbox/mvtec_fs_train.jsonl \
+  --model dinov2_vits14 \
+  --region bbox \
+  --bbox-padding 0.15 \
+  --min-crop-size 32 \
+  --batch-size 16 \
+  --device auto \
+  --overwrite
+```
+
+Then run the same few-shot grid:
+
+```bash
+python scripts/run_fewshot_grid.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --split train \
+  --grid 5:1,5:3,5:5,10:1,10:5 \
+  --q-queries 5 \
+  --episodes 200 \
+  --feature-source cached \
+  --feature-file outputs/features/dinov2_bbox/mvtec_fs_train.jsonl \
+  --feature-dim 384 \
+  --output-json outputs/results/dinov2_bbox_prototype_grid.json \
+  --output-md outputs/results/dinov2_bbox_prototype_grid.md
+```
+
+This is the second baseline table: DINOv2 bbox/ROI prototype. Compare it against the whole-image table to check whether localization helps.

@@ -293,3 +293,48 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 在服务器上用 DINOv2 cached features 跑标准 grid：`5:1,5:3,5:5,10:1,10:5`。
 - 将输出的 Markdown 表格作为 DINOv2 whole-image prototype baseline 的第一版实验表。
 - 下一步实现 ROI / pseudo-mask region feature baseline，和 whole-image baseline 对比。
+
+## 2026-05-04 00:20 +08:00
+
+### 修改目的
+
+新增 DINOv2 bbox/ROI feature extraction，用于构建第二条关键 baseline：`DINOv2 bbox/ROI prototype`。该 baseline 用 LabelMe 标注推导出的 bbox 裁剪缺陷区域，再提取 DINOv2 特征，检验 localization-guided 思路是否优于 whole-image prototype。
+
+### 涉及文件
+
+- `scripts/extract_dinov2_features.py`
+- `scripts/check_bbox_crop.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- `extract_dinov2_features.py` 新增 `--region whole/bbox` 参数。
+- 新增 `--bbox-padding`，控制 bbox crop 周围上下文扩展比例。
+- 新增 `--min-crop-size`，避免极小缺陷裁剪区域过小。
+- bbox 模式下从 manifest 的 `bbox` 字段读取 `x1,y1,x2,y2`，裁剪后再做 DINOv2 预处理和特征提取。
+- 输出 JSONL 中增加 `region` 和 `crop_box` 字段，方便后续追踪 whole/bbox 特征来源。
+- 新增 `scripts/check_bbox_crop.py`，不依赖 torch/PIL，验证 bbox 解析、padding 和边界裁剪逻辑。
+- README 增加 DINOv2 bbox/ROI baseline 的服务器运行命令。
+
+### 验证命令和结果
+
+轻量级自检命令：
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_bbox_crop.py
+```
+
+预期输出：`bbox-crop-check-ok`。
+
+语法检查：
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/extract_dinov2_features.py scripts/check_bbox_crop.py
+```
+
+### 后续待办
+
+- 在服务器上提取 `outputs/features/dinov2_bbox/mvtec_fs_train.jsonl`。
+- 跑 `dinov2_bbox_prototype_grid`，和 `dinov2_prototype_grid` 对比。
+- 如果 bbox ROI 高于 whole image，继续做 pseudo-mask/region-context；如果低于 whole image，优先分析 context 丢失问题。
