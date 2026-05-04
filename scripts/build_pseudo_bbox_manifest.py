@@ -16,6 +16,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", required=True, help="Original CSV manifest.")
     parser.add_argument("--heatmap-file", required=True, help="JSONL heatmap cache keyed by image_path.")
     parser.add_argument("--output", required=True, help="Output CSV manifest with bbox replaced by pseudo bbox.")
+    parser.add_argument("--split", default="all", help="Manifest split to write; use all for every row.")
     parser.add_argument("--percentile", type=float, default=0.9, help="Heatmap percentile threshold in (0, 1].")
     parser.add_argument("--min-area-ratio", type=float, default=0.001, help="Minimum selected component area ratio.")
     parser.add_argument("--component", choices=["largest", "max-score"], default="max-score")
@@ -37,12 +38,18 @@ def main() -> None:
 
     heatmaps = load_heatmap_cache(Path(args.heatmap_file))
     rows, fieldnames = load_manifest_rows(Path(args.manifest))
+    total_rows = len(rows)
+    rows = filter_rows_by_split(rows, args.split)
+    if not rows:
+        raise ValueError(f"No manifest rows found for split={args.split!r}")
     missing_paths = [row["image_path"] for row in rows if _get_heatmap_payload(heatmaps, row["image_path"]) is None]
     if missing_paths and args.missing_policy == "error":
         examples = ", ".join(missing_paths[:5])
         raise ValueError(
-            f"Missing heatmaps for {len(missing_paths)} manifest rows; examples: {examples}. "
-            "Use --missing-policy clear for debugging partial heatmap caches."
+            f"Missing heatmaps for {len(missing_paths)} manifest rows after split={args.split!r}; "
+            f"examples: {examples}. If the heatmap file was generated with --split train, "
+            "run this script with --split train too. Use --missing-policy clear only for debugging "
+            "partial heatmap caches."
         )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -81,7 +88,9 @@ def main() -> None:
             writer.writerow(row)
 
     print(f"wrote pseudo-bbox manifest: {output}")
-    print(f"rows: {len(rows)}")
+    print(f"source_rows: {total_rows}")
+    print(f"written_rows: {len(rows)}")
+    print(f"split: {args.split}")
     print(f"pseudo_bbox_rows: {replaced}")
     print(f"missing_heatmap_rows: {len(missing_paths)}")
 
@@ -101,6 +110,14 @@ def load_manifest_rows(path: Path) -> tuple[list[dict[str, str]], list[str]]:
         raise ValueError(f"Manifest rows must contain image_path: {path}")
     return rows, fieldnames
 
+
+
+def filter_rows_by_split(rows: list[dict[str, str]], split: str) -> list[dict[str, str]]:
+    """按 split 过滤 manifest；默认 all 保留所有行。"""
+
+    if split == "all":
+        return list(rows)
+    return [row for row in rows if row.get("split") == split]
 
 def load_heatmap_cache(path: Path) -> dict[str, dict[str, Any]]:
     """读取 heatmap JSONL，要求至少包含 image_path 和 heatmap。"""

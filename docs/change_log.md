@@ -508,3 +508,43 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 用生成的 heatmap JSONL 构建 `data/manifests/mvtec_fs_pseudo_bbox.csv`。
 - 提取 `dinov2_pseudo_bbox` 特征并运行 few-shot grid。
 - 如果后续能纳入 normal/good 图像，再尝试 `nearest-memory` 模式并和 `patch-contrast` 对比。
+
+## 2026-05-05 00:11 +08:00
+
+### 修改目的
+
+修复服务器运行 `build_pseudo_bbox_manifest.py` 时出现的 missing heatmap 报错。根因是 heatmap 文件用 `--split train` 生成，只覆盖 train 行；而 pseudo-bbox builder 之前默认检查整个 manifest，包含 testing/validation 行，导致未生成 heatmap 的行被当成错误。
+
+### 涉及文件
+
+- `scripts/build_pseudo_bbox_manifest.py`
+- `scripts/check_pseudo_bbox.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- `build_pseudo_bbox_manifest.py` 新增 `--split` 参数，默认 `all`，可设置为 `train` 只输出 train manifest。
+- 缺失 heatmap 的错误提示现在会显示当前 split，并提示如果 heatmap 用 `--split train` 生成，pseudo-bbox builder 也应使用 `--split train`。
+- 输出日志从 `rows` 改为 `source_rows`、`written_rows`、`split`，方便判断过滤前后数量是否符合预期。
+- `check_pseudo_bbox.py` 新增 split 过滤测试和 CLI 集成测试，验证只有 train heatmap 时可以成功构建 train pseudo-bbox manifest。
+- README 中的 pseudo-bbox 命令改为输出 `data/manifests/mvtec_fs_pseudo_bbox_train.csv`，并显式加入 `--split train`。
+
+### 验证命令和结果
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox.py
+```
+
+结果：通过，输出 `pseudo-bbox-check-ok`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/build_pseudo_bbox_manifest.py scripts/check_pseudo_bbox.py
+```
+
+结果：通过，无语法错误。
+
+### 后续待办
+
+- 服务器 `run.sh` 中生成 train heatmap 后，构建 pseudo-bbox manifest 时同步加上 `--split train`。
+- 后续如果要生成 test/val 的 pseudo-bbox manifest，需要先对应生成 test/val heatmap JSONL，或者使用 `--split all` 且 heatmap 文件覆盖全部 manifest 行。

@@ -293,7 +293,8 @@ Then build a pseudo-bbox manifest from the generated heatmaps:
 python scripts/build_pseudo_bbox_manifest.py \
   --manifest data/manifests/mvtec_fs.csv \
   --heatmap-file outputs/heatmaps/dinov2_patch_contrast_train.jsonl \
-  --output data/manifests/mvtec_fs_pseudo_bbox.csv \
+  --output data/manifests/mvtec_fs_pseudo_bbox_train.csv \
+  --split train \
   --percentile 0.90 \
   --min-area-ratio 0.001 \
   --component max-score \
@@ -301,14 +302,14 @@ python scripts/build_pseudo_bbox_manifest.py \
   --overwrite
 ```
 
-Default `--missing-policy error` stops if any manifest row has no heatmap, which avoids accidentally mixing GT LabelMe bbox into pseudo-bbox experiments. Use `--missing-policy clear` only for debugging incomplete heatmap caches.
+Default `--missing-policy error` stops if any selected manifest row has no heatmap. Keep `--split` aligned with the heatmap extractor: if heatmaps were generated with `--split train`, build the pseudo-bbox manifest with `--split train` too. Use `--missing-policy clear` only for debugging incomplete heatmap caches.
 
 Then reuse the existing bbox DINOv2 extractor on the pseudo-bbox manifest:
 
 ```bash
 mkdir -p outputs/features/dinov2_pseudo_bbox
 python scripts/extract_dinov2_features.py \
-  --manifest data/manifests/mvtec_fs_pseudo_bbox.csv \
+  --manifest data/manifests/mvtec_fs_pseudo_bbox_train.csv \
   --image-root /home/jack/datasets/MVTec-FS \
   --split train \
   --output outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl \
@@ -321,4 +322,4 @@ python scripts/extract_dinov2_features.py \
   --overwrite
 ```
 
-Finally run the same grid with `outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl`.
+Finally run the same grid with `data/manifests/mvtec_fs_pseudo_bbox_train.csv` and `outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl`.
