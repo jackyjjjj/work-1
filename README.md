@@ -250,18 +250,49 @@ Use fusion results to test whether context-rich whole-image features and defect-
 
 ## Pseudo-BBox From Anomaly Heatmaps
 
-The next stage replaces GT LabelMe bbox with pseudo bbox generated from anomaly heatmaps. Any localizer can be used if it writes JSONL like this:
+The next stage replaces GT LabelMe bbox with pseudo bbox generated from anomaly heatmaps. The name `example_heatmaps.jsonl` was only a placeholder: first generate a real heatmap JSONL file.
 
-```json
-{"image_path":"relative/path.png","image_width":512,"image_height":512,"heatmap":[[0.0,0.1],[0.8,0.9]]}
+A dependency-light starter localizer is provided in `scripts/extract_dinov2_patch_heatmaps.py`. It writes JSONL rows with `image_path`, original image size, and a 2D `heatmap` array.
+
+```bash
+mkdir -p outputs/heatmaps
+python scripts/extract_dinov2_patch_heatmaps.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --image-root /home/jack/datasets/MVTec-FS \
+  --split train \
+  --output outputs/heatmaps/dinov2_patch_contrast_train.jsonl \
+  --mode patch-contrast \
+  --model dinov2_vits14 \
+  --batch-size 8 \
+  --device auto \
+  --overwrite
 ```
 
-Build a pseudo-bbox manifest:
+`--mode patch-contrast` does not require normal/good images and can be used immediately on the current MVTec-FS defect-only manifest. If you later rebuild a manifest that includes normal/good images, you can try the stronger memory-based mode:
+
+```bash
+python scripts/extract_dinov2_patch_heatmaps.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --image-root /home/jack/datasets/MVTec-FS \
+  --split train \
+  --output outputs/heatmaps/dinov2_nearest_memory_train.jsonl \
+  --mode nearest-memory \
+  --memory-split train \
+  --memory-labels good,normal,ok \
+  --max-memory-images 200 \
+  --max-memory-patches 20000 \
+  --model dinov2_vits14 \
+  --batch-size 8 \
+  --device auto \
+  --overwrite
+```
+
+Then build a pseudo-bbox manifest from the generated heatmaps:
 
 ```bash
 python scripts/build_pseudo_bbox_manifest.py \
   --manifest data/manifests/mvtec_fs.csv \
-  --heatmap-file outputs/heatmaps/example_heatmaps.jsonl \
+  --heatmap-file outputs/heatmaps/dinov2_patch_contrast_train.jsonl \
   --output data/manifests/mvtec_fs_pseudo_bbox.csv \
   --percentile 0.90 \
   --min-area-ratio 0.001 \

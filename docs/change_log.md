@@ -465,3 +465,46 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 生成 `outputs/heatmaps/*.jsonl`。
 - 构建 `data/manifests/mvtec_fs_pseudo_bbox.csv`。
 - 提取 DINOv2 pseudo-bbox 特征并跑 grid，与 GT bbox/ROI 对比。
+
+## 2026-05-04 02:30 +08:00
+
+### 修改目的
+
+补齐 pseudo-bbox 流程中缺失的 heatmap JSONL 生成步骤。之前 README 中的 `example_heatmaps.jsonl` 只是占位示例，用户本地不会自动存在；本次新增一个可直接运行的 DINOv2 patch heatmap 生成脚本，让后续 `build_pseudo_bbox_manifest.py` 有真实输入。
+
+### 涉及文件
+
+- `scripts/extract_dinov2_patch_heatmaps.py`
+- `scripts/check_dinov2_patch_heatmaps.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `scripts/extract_dinov2_patch_heatmaps.py`，输出 `outputs/heatmaps/*.jsonl`。
+- 支持 `patch-contrast` 模式：不依赖 normal/good 图像，直接用单张图内部 patch 与平均 patch 的差异生成启动版 anomaly heatmap。
+- 支持 `nearest-memory` 模式：当 manifest 中包含 good/normal 图像时，用 normal 图像 DINOv2 patch token 建 memory bank，再计算每个 patch 到 memory 的最近余弦距离。
+- 输出 JSONL 包含 `image_path`、`image_width`、`image_height`、`heatmap_width`、`heatmap_height`、`heatmap`、`localizer` 等字段，可直接输入 `build_pseudo_bbox_manifest.py`。
+- 新增 `scripts/check_dinov2_patch_heatmaps.py`，轻量验证 heatmap 归一化、patch 数量到二维网格转换、memory 样本筛选逻辑。
+- 更新 README，把 `example_heatmaps.jsonl` 改为真实生成命令 `outputs/heatmaps/dinov2_patch_contrast_train.jsonl`。
+
+### 验证命令和结果
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_dinov2_patch_heatmaps.py
+```
+
+结果：通过，输出 `dinov2-patch-heatmap-check-ok`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/extract_dinov2_patch_heatmaps.py scripts/check_dinov2_patch_heatmaps.py scripts/build_pseudo_bbox_manifest.py
+```
+
+结果：通过，无语法错误。
+
+### 后续待办
+
+- 在服务器上先运行 `patch-contrast` 模式生成 heatmap JSONL。
+- 用生成的 heatmap JSONL 构建 `data/manifests/mvtec_fs_pseudo_bbox.csv`。
+- 提取 `dinov2_pseudo_bbox` 特征并运行 few-shot grid。
+- 如果后续能纳入 normal/good 图像，再尝试 `nearest-memory` 模式并和 `patch-contrast` 对比。
