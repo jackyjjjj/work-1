@@ -199,3 +199,51 @@ python scripts/run_fewshot_grid.py \
 ```
 
 This is the second baseline table: DINOv2 bbox/ROI prototype. Compare it against the whole-image table to check whether localization helps.
+## DINOv2 Region-Global Fusion Baseline
+
+After whole-image and bbox feature caches are ready, fuse them into a region-global representation.
+
+Concat fusion doubles the feature dimension from 384 to 768:
+
+```bash
+mkdir -p outputs/features/dinov2_fusion_concat
+python scripts/fuse_feature_cache.py \
+  --whole-file outputs/features/dinov2/mvtec_fs_train.jsonl \
+  --region-file outputs/features/dinov2_bbox/mvtec_fs_train.jsonl \
+  --method concat \
+  --output outputs/features/dinov2_fusion_concat/mvtec_fs_train.jsonl \
+  --overwrite
+```
+
+Run the grid with `--feature-dim 768`:
+
+```bash
+python scripts/run_fewshot_grid.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --split train \
+  --grid 5:1,5:3,5:5,10:1,10:5 \
+  --q-queries 5 \
+  --episodes 200 \
+  --feature-source cached \
+  --feature-file outputs/features/dinov2_fusion_concat/mvtec_fs_train.jsonl \
+  --feature-dim 768 \
+  --output-json outputs/results/dinov2_fusion_concat_grid.json \
+  --output-md outputs/results/dinov2_fusion_concat_grid.md
+```
+
+Weighted-sum fusion keeps the feature dimension at 384:
+
+```bash
+mkdir -p outputs/features/dinov2_fusion_alpha05
+python scripts/fuse_feature_cache.py \
+  --whole-file outputs/features/dinov2/mvtec_fs_train.jsonl \
+  --region-file outputs/features/dinov2_bbox/mvtec_fs_train.jsonl \
+  --method weighted-sum \
+  --alpha 0.5 \
+  --normalize-input \
+  --normalize-output \
+  --output outputs/features/dinov2_fusion_alpha05/mvtec_fs_train.jsonl \
+  --overwrite
+```
+
+Use fusion results to test whether context-rich whole-image features and defect-focused ROI features complement each other.

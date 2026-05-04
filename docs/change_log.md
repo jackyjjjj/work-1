@@ -338,3 +338,48 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 在服务器上提取 `outputs/features/dinov2_bbox/mvtec_fs_train.jsonl`。
 - 跑 `dinov2_bbox_prototype_grid`，和 `dinov2_prototype_grid` 对比。
 - 如果 bbox ROI 高于 whole image，继续做 pseudo-mask/region-context；如果低于 whole image，优先分析 context 丢失问题。
+
+## 2026-05-04 00:50 +08:00
+
+### 修改目的
+
+新增 region-global feature fusion baseline，将 DINOv2 whole-image feature 与 DINOv2 bbox/ROI feature 融合，用于验证“整图上下文 + 局部缺陷区域”是否优于单独使用 whole image 或 ROI。
+
+### 涉及文件
+
+- `scripts/fuse_feature_cache.py`
+- `scripts/check_feature_fusion.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `scripts/fuse_feature_cache.py`。
+- 支持 `concat` 融合：`[whole_feature, region_feature]`，维度从 384 变成 768。
+- 支持 `weighted-sum` 融合：`alpha * whole + (1-alpha) * region`，维度保持 384。
+- 支持 `--normalize-input` 和 `--normalize-output`，方便做归一化加权融合。
+- 输出 JSONL 中保留 `fusion_method`、`fusion_alpha`、`region_crop_box` 等追踪字段。
+- 新增 `scripts/check_feature_fusion.py`，不依赖重模型，验证 concat/weighted-sum 与 JSONL 输出逻辑。
+- README 增加 fusion concat 和 weighted-sum 的服务器运行命令。
+
+### 验证命令和结果
+
+轻量级自检命令：
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_feature_fusion.py
+```
+
+预期输出：`feature-fusion-check-ok`。
+
+语法检查：
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/fuse_feature_cache.py scripts/check_feature_fusion.py
+```
+
+### 后续待办
+
+- 在服务器上生成 `dinov2_fusion_concat` 特征并跑 grid。
+- 可选扫描 weighted-sum 的 `alpha=0.25,0.5,0.75`。
+- 对比 whole-image、bbox/ROI、fusion 三张表，判断 region-context 融合是否成立。
