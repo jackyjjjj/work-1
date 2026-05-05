@@ -337,6 +337,26 @@ python scripts/evaluate_pseudo_bbox_iou.py \
   --output-csv outputs/diagnostics/pseudo_bbox_iou_train.csv
 ```
 
+
+Sweep pseudo-bbox extraction parameters before rerunning expensive ROI features:
+
+```bash
+mkdir -p outputs/diagnostics outputs/manifests/pseudo_bbox_sweep
+python scripts/sweep_pseudo_bbox_iou.py \
+  --gt-manifest data/manifests/mvtec_fs.csv \
+  --heatmap-file outputs/heatmaps/dinov2_patch_contrast_train.jsonl \
+  --split train \
+  --percentiles 0.85,0.90,0.95 \
+  --min-area-ratios 0.0005,0.001,0.005 \
+  --components largest,max-score \
+  --output-json outputs/diagnostics/pseudo_bbox_iou_sweep_train.json \
+  --output-md outputs/diagnostics/pseudo_bbox_iou_sweep_train.md \
+  --output-csv outputs/diagnostics/pseudo_bbox_iou_sweep_train.csv \
+  --write-manifests-dir outputs/manifests/pseudo_bbox_sweep
+```
+
+The sweep ranks settings by mean IoU, then Recall@IoU 0.50/0.25. Use the best generated pseudo manifest only as a staging artifact; copy or rebuild the chosen setting into `data/manifests/mvtec_fs_pseudo_bbox_train.csv` before extracting DINOv2 ROI features.
+
 If pseudo-bbox ROI is weak, test whether whole-image context recovers performance by fusing whole-image and pseudo-bbox features:
 
 ```bash

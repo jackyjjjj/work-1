@@ -598,3 +598,46 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 在服务器上运行 `scripts/evaluate_pseudo_bbox_iou.py`，量化 pseudo bbox 与 GT bbox 的 IoU。
 - 用 `fuse_feature_cache.py` 将 whole-image 特征和 pseudo-bbox ROI 特征做 concat fusion，检查上下文是否能恢复性能。
 - 根据 IoU 结果调 `--percentile`、`--min-area-ratio`，或替换为 nearest-memory / PatchCore localizer。
+
+## 2026-05-05 10:30 +08:00
+
+### 修改目的
+
+新增 pseudo-bbox 参数 sweep 工具，用同一份 heatmap JSONL 快速比较不同 `percentile`、`min-area-ratio` 和 `component` 设置下的 GT bbox IoU，避免每次调参都先跑昂贵的 DINOv2 ROI 特征提取。
+
+### 涉及文件
+
+- `scripts/sweep_pseudo_bbox_iou.py`
+- `scripts/check_pseudo_bbox_iou_sweep.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `scripts/sweep_pseudo_bbox_iou.py`，直接复用 `build_pseudo_bbox_manifest.py` 的 heatmap-to-bbox 逻辑和 `evaluate_pseudo_bbox_iou.py` 的 IoU 统计逻辑。
+- 支持一次性 sweep 多个 `--percentiles`、`--min-area-ratios` 和 `--components` 组合。
+- 输出 JSON / Markdown / CSV 排名表，排名依据为 mean IoU，其次是 Recall@IoU 0.50、Recall@IoU 0.25 和 median IoU。
+- 可选 `--write-manifests-dir`，为每个参数组合写出对应 pseudo-bbox manifest，方便直接挑选最佳设置继续提特征。
+- 新增 `scripts/check_pseudo_bbox_iou_sweep.py`，用合成 manifest 和 heatmap 验证 CLI 输出、排名和 manifest 写出逻辑。
+- README 增加服务器端 pseudo-bbox IoU sweep 命令。
+
+### 验证命令和结果
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox_iou_sweep.py
+```
+
+结果：通过，输出 `pseudo-bbox-iou-sweep-check-ok`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/sweep_pseudo_bbox_iou.py scripts/check_pseudo_bbox_iou_sweep.py
+```
+
+结果：通过，无语法错误。
+
+### 后续待办
+
+- 在服务器上用真实 `outputs/heatmaps/dinov2_patch_contrast_train.jsonl` 跑 sweep，查看最佳 mean IoU、median IoU 和 Recall@IoU 0.25/0.50。
+- 根据 sweep 最佳参数重建 `data/manifests/mvtec_fs_pseudo_bbox_train.csv`，再提取 pseudo-bbox ROI 特征。
+- 跑 pseudo-bbox + whole-image concat fusion，确认上下文能否弥补 pseudo ROI 的定位误差。
+
