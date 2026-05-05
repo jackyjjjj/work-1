@@ -403,3 +403,29 @@ python scripts/run_region_context_grid.py \
 
 `--whole-weights` controls the score-level whole-image contribution; the region score weight is `1 - whole_weight`.
 
+
+For 10-way diagnostics, compare region-context and pseudo concat fusion on the same sampled episodes and export per-class/confusion tables:
+
+```bash
+mkdir -p outputs/diagnostics
+python scripts/analyze_region_context_confusion.py \
+  --manifest data/manifests/mvtec_fs_pseudo_bbox_train.csv \
+  --split train \
+  --n-way 10 \
+  --k-shot 5 \
+  --q-queries 5 \
+  --episodes 200 \
+  --whole-feature-file outputs/features/dinov2/mvtec_fs_train.jsonl \
+  --region-feature-file outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl \
+  --whole-feature-dim 384 \
+  --region-feature-dim 384 \
+  --whole-weight 0.75 \
+  --baseline-feature-file outputs/features/dinov2_pseudo_fusion_concat/mvtec_fs_train.jsonl \
+  --baseline-feature-dim 768 \
+  --baseline-name pseudo_concat \
+  --output-json outputs/diagnostics/region_context_10way5shot_confusion.json \
+  --output-md outputs/diagnostics/region_context_10way5shot_confusion.md \
+  --output-per-class-csv outputs/diagnostics/region_context_10way5shot_per_class.csv \
+  --output-confusion-csv outputs/diagnostics/region_context_10way5shot_confusions.csv
+```
+

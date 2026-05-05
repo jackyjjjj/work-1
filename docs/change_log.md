@@ -794,3 +794,44 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 增加 score calibration 或 per-episode 自适应权重，避免固定权重在 5-way 1-shot/5-shot 上略低于 concat。
 - 补充 confusion/per-class 分析，判断 region-context 在 10-way 中改善了哪些易混类别。
 
+## 2026-05-05 13:00 +08:00
+
+### 修改目的
+
+新增 region-context 的 per-class / confusion 分析工具，用于诊断 10-way 设置中 score-level region-context 相比 pseudo concat fusion 改善了哪些类别、恶化了哪些类别。
+
+### 涉及文件
+
+- `scripts/analyze_region_context_confusion.py`
+- `scripts/check_region_context_confusion.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `scripts/analyze_region_context_confusion.py`，在同一批 sampled episodes 上统计 region-context 的整体指标、per-class precision/recall/F1 和 top confusion pairs。
+- 支持可选 `--baseline-feature-file`，用同一批 episodes 同时评估一个 cached-feature prototype baseline，例如 `dinov2_pseudo_fusion_concat`，并输出 per-class delta。
+- 支持输出 JSON、Markdown、per-class CSV 和 confusion CSV，便于后续论文分析和手工检查难分类别。
+- 新增 `scripts/check_region_context_confusion.py`，用合成 cached features 验证 region-context、baseline 对比和文件输出逻辑。
+- README 增加 10-way region-context vs pseudo concat confusion 诊断命令。
+
+### 验证命令和结果
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_region_context_confusion.py
+```
+
+结果：通过，输出 `region-context-confusion-check-ok`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/analyze_region_context_confusion.py scripts/check_region_context_confusion.py
+```
+
+结果：通过，无语法错误。
+
+### 后续待办
+
+- 在服务器上运行 10-way 5-shot confusion 分析，查看 region-context 提升主要来自哪些 defect labels。
+- 对 10-way 1-shot 也运行同一脚本，比较低 shot 和高 shot 的混淆模式是否一致。
+- 根据 per-class delta 决定下一步是做 score calibration、adaptive weight，还是优先修复特定类别的 pseudo localization。
+
