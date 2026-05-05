@@ -38,23 +38,23 @@ Few-shot settings:
 
 ## 3. Accuracy Summary
 
-| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 5-way 1-shot | 82.10 | 79.62 | 63.80 | **83.62** | 82.48 | 83.08 | 82.48 |
-| 5-way 3-shot | 85.38 | 84.92 | 69.20 | 87.14 | 86.50 | **87.22** | 86.34 |
-| 5-way 5-shot | 86.84 | 88.06 | 67.92 | **89.66** | 89.42 | 89.46 | 87.90 |
-| 10-way 1-shot | 72.61 | 70.70 | 49.97 | 74.81 | 73.92 | **75.12** | 74.25 |
-| 10-way 5-shot | 77.16 | 80.14 | 51.40 | **81.88** | 81.53 | 81.60 | 79.32 |
+| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Pseudo-BBox Fusion | GT Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 5-way 1-shot | 82.10 | 79.62 | 63.80 | 80.50 | **83.62** | 82.48 | 83.08 | 82.48 |
+| 5-way 3-shot | 85.38 | 84.92 | 69.20 | 83.92 | 87.14 | 86.50 | **87.22** | 86.34 |
+| 5-way 5-shot | 86.84 | 88.06 | 67.92 | 85.80 | **89.66** | 89.42 | 89.46 | 87.90 |
+| 10-way 1-shot | 72.61 | 70.70 | 49.97 | 68.43 | 74.81 | 73.92 | **75.12** | 74.25 |
+| 10-way 5-shot | 77.16 | 80.14 | 51.40 | 73.38 | **81.88** | 81.53 | 81.60 | 79.32 |
 
 ## 4. Macro-F1 Summary
 
-| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 5-way 1-shot | 80.42 | 77.61 | 60.07 | **81.94** | 80.60 | 81.33 | 80.75 |
-| 5-way 3-shot | 84.15 | 83.67 | 66.39 | **85.97** | 85.31 | **85.97** | 85.18 |
-| 5-way 5-shot | 85.63 | 87.08 | 64.57 | **88.66** | 88.46 | 88.43 | 86.75 |
-| 10-way 1-shot | 70.19 | 68.16 | 45.44 | 72.58 | 71.51 | **72.80** | 71.96 |
-| 10-way 5-shot | 74.53 | 78.40 | 46.22 | **79.95** | 79.78 | 79.51 | 76.82 |
+| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Pseudo-BBox Fusion | GT Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 5-way 1-shot | 80.42 | 77.61 | 60.07 | 78.52 | **81.94** | 80.60 | 81.33 | 80.75 |
+| 5-way 3-shot | 84.15 | 83.67 | 66.39 | 82.64 | **85.97** | 85.31 | **85.97** | 85.18 |
+| 5-way 5-shot | 85.63 | 87.08 | 64.57 | 84.54 | **88.66** | 88.46 | 88.43 | 86.75 |
+| 10-way 1-shot | 70.19 | 68.16 | 45.44 | 65.52 | 72.58 | 71.51 | **72.80** | 71.96 |
+| 10-way 5-shot | 74.53 | 78.40 | 46.22 | 70.52 | **79.95** | 79.78 | 79.51 | 76.82 |
 
 ## 5. Detailed Tables
 
@@ -147,6 +147,24 @@ Localizer: `dinov2_patch_contrast` heatmap -> pseudo bbox
 Observation: this starter pseudo-bbox ROI baseline is much lower than whole-image, GT bbox/ROI, and fusion. The result suggests that the first `patch-contrast` localizer is not accurate enough for ROI-only classification, and that pseudo-localization quality should be diagnosed before treating pseudo-bbox ROI as a final method.
 
 
+### 5.8 DINOv2 Pseudo-BBox + Whole Concat Fusion Prototype
+
+Feature file: `outputs/features/dinov2_pseudo_fusion_concat/mvtec_fs_train.jsonl`
+Manifest: `data/manifests/mvtec_fs_pseudo_bbox_train.csv`
+Localizer: `dinov2_patch_contrast` heatmap -> pseudo bbox
+Fusion: whole-image DINOv2 + pseudo-bbox ROI DINOv2 concat
+
+| Setting | Episodes | Accuracy | Balanced Acc | Macro-F1 |
+|---|---:|---:|---:|---:|
+| 5-way 1-shot | 200 | 80.50 +/- 13.39 | 80.50 +/- 13.39 | 78.52 +/- 15.03 |
+| 5-way 3-shot | 200 | 83.92 +/- 11.72 | 83.92 +/- 11.72 | 82.64 +/- 12.85 |
+| 5-way 5-shot | 200 | 85.80 +/- 12.19 | 85.80 +/- 12.19 | 84.54 +/- 13.44 |
+| 10-way 1-shot | 200 | 68.43 +/- 9.05 | 68.43 +/- 9.05 | 65.52 +/- 9.80 |
+| 10-way 5-shot | 200 | 73.38 +/- 8.94 | 73.38 +/- 8.94 | 70.52 +/- 9.90 |
+
+Observation: pseudo-bbox + whole-image concat recovers most of the ROI-only performance loss despite weak pseudo localization. Accuracy improves by `+14.72` to `+21.98` points over pseudo-bbox ROI, and Macro-F1 improves by `+16.25` to `+24.30` points. The result approaches whole-image performance in 5-way settings, but remains below GT bbox + whole fusion, especially in 10-way 5-shot. This supports the region-context direction while showing that localization quality still limits the automatic pipeline.
+
+
 ## 6. Pseudo-BBox IoU Sweep
 
 This sweep evaluates the first `dinov2_patch_contrast` heatmap localizer before rerunning expensive ROI feature extraction.
@@ -185,7 +203,7 @@ Interpretation:
 2. Recall@IoU 0.50 is only `13.88%`, so ROI-only pseudo-bbox classification is expected to underperform.
 3. Mean pseudo/GT area ratio is very large (`11.32`) for the best setting, indicating that the largest connected component often produces boxes much larger than GT.
 4. `largest` is much more stable than `max-score` for percentile `0.85` and `0.90`; `max-score` often collapses to off-target high-score islands with near-zero median IoU.
-5. The next experiment should prioritize pseudo-bbox + whole-image fusion and stronger localization, rather than changing the prototype classifier.
+5. Pseudo-bbox + whole-image fusion is necessary for the current localizer; the remaining gap to GT fusion should be addressed by stronger localization and more explicit region-context modeling.
 
 ## 7. Delta Analysis
 
@@ -228,6 +246,7 @@ Interpretation:
 5. Concat fusion is the most stable simple fusion strategy; weighted-sum is more sensitive to the global-region balance.
 6. Alpha 0.25 is generally more stable than alpha 0.75, suggesting that defect-region features are important but need global context as a complement.
 7. The first automatic `patch-contrast` pseudo-bbox ROI result is much weaker than all DINOv2 baselines, so the current bottleneck is localization quality rather than the prototype classifier itself.
+8. Pseudo-bbox + whole-image fusion recovers most ROI-only loss and approaches whole-image performance in 5-way settings, confirming that global context is crucial when automatic localization is noisy.
 
 ## 9. Paper-Writing Takeaway
 
@@ -251,7 +270,7 @@ next: anomaly heatmap -> pseudo bbox / pseudo mask -> region-context feature
 Recommended next implementation target:
 
 ```text
-pseudo bbox generation from anomaly heatmaps
-  -> DINOv2 pseudo-ROI prototype
-  -> compare against GT bbox ROI and region-global fusion
+stronger anomaly heatmap localizer
+  -> better pseudo bbox / pseudo mask
+  -> explicit region-context prototype beyond simple concat
 ```

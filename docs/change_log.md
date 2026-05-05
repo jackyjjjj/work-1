@@ -672,3 +672,40 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 提取最佳参数下的 pseudo-bbox ROI 特征，必要时复跑 pseudo-bbox ROI grid。
 - 将 whole-image 特征与 pseudo-bbox ROI 特征 concat，运行标准 few-shot grid。
 
+## 2026-05-05 11:30 +08:00
+
+### 修改目的
+
+记录服务器端 pseudo-bbox + whole-image concat fusion few-shot 结果，验证全局上下文是否能补偿当前 pseudo-bbox ROI 定位误差。
+
+### 涉及文件
+
+- `experiments/dinov2_baselines.md`
+- `docs/change_log.md`
+
+### 记录的实验结果
+
+- Manifest: `data/manifests/mvtec_fs_pseudo_bbox_train.csv`
+- Feature file: `outputs/features/dinov2_pseudo_fusion_concat/mvtec_fs_train.jsonl`
+- Fusion: whole-image DINOv2 + pseudo-bbox ROI DINOv2 concat
+
+| Setting | Accuracy | Macro-F1 |
+|---|---:|---:|
+| 5-way 1-shot | 80.50 +/- 13.39 | 78.52 +/- 15.03 |
+| 5-way 3-shot | 83.92 +/- 11.72 | 82.64 +/- 12.85 |
+| 5-way 5-shot | 85.80 +/- 12.19 | 84.54 +/- 13.44 |
+| 10-way 1-shot | 68.43 +/- 9.05 | 65.52 +/- 9.80 |
+| 10-way 5-shot | 73.38 +/- 8.94 | 70.52 +/- 9.90 |
+
+### 结论
+
+- pseudo-bbox + whole-image concat 相比 pseudo-bbox ROI 有大幅提升，Accuracy 提升 `+14.72` 到 `+21.98` 个百分点，Macro-F1 提升 `+16.25` 到 `+24.30` 个百分点。
+- 5-way 设置已经接近 whole-image baseline，但 10-way 设置仍明显低于 whole-image 和 GT bbox + whole fusion。
+- 这说明全局上下文能有效补偿 pseudo ROI 的定位误差，但当前 automatic localization 质量仍是和 GT fusion 之间的主要差距来源。
+
+### 后续待办
+
+- 继续优先改 localization：尝试 nearest-memory、PatchCore 或 AnomalyDINO heatmap。
+- 在已有 concat 结果基础上实现更正式的 region-context prototype，而不是只做特征拼接。
+- 如时间允许，补充 pseudo fusion 与 whole-image / GT fusion 的 delta 表，便于论文分析。
+
