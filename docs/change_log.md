@@ -964,3 +964,22 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 ```
 
 结果：通过，无语法错误。
+
+## 2026-05-05 22:57 +08:00
+
+### 修改目的
+
+新增一份独立于旧 `handoff.md` 的当前阶段交接摘要，整合本次会话中的 region-context confusion、paired weight sweep、seed 修复和最新研究结论，方便新会话继续工作。
+
+### 涉及文件
+
+- `handoff_region_context_2026-05-05.md`
+- `docs/change_log.md`
+
+### 主要内容
+
+- 总结项目目标、环境、约束和关键文件。
+- 汇总 whole-image、GT bbox、GT fusion、pseudo ROI、pseudo concat、pseudo-bbox IoU、region-context confusion 和 paired sweep 的关键结果。
+- 标注 `scripts/run_region_context_grid.py` 已修复跨权重 episode seed 配对问题。
+- 明确最新 paired sweep 结论：10-way 1-shot 在 whole-only 下最佳，10-way 5-shot 仅在 `0.95/0.05` 下获得极小增益。
+- 给出未完成事项和下一步建议：先记录 paired sweep，再考虑 score normalization / confidence-adaptive weighting 或更强 localization。
