@@ -753,3 +753,44 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 如果 region-context 优于 concat，可进一步做 per-class confusion 和权重选择分析。
 - 如果 region-context 仍低于 concat，优先继续改 localization 或引入可学习/校准过的 score fusion。
 
+## 2026-05-05 12:30 +08:00
+
+### 修改目的
+
+记录服务器端 score-level region-context prototype 结果，并比较其与 pseudo-bbox concat fusion、whole-image baseline 和 GT fusion 的差异。
+
+### 涉及文件
+
+- `experiments/dinov2_baselines.md`
+- `docs/change_log.md`
+
+### 记录的实验结果
+
+- Manifest: `data/manifests/mvtec_fs_pseudo_bbox_train.csv`
+- Whole feature file: `outputs/features/dinov2/mvtec_fs_train.jsonl`
+- Region feature file: `outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl`
+- 权重扫描：`whole_weight=0.25/0.50/0.75`，region 权重为 `1 - whole_weight`。
+
+最佳 Accuracy 均出现在 `whole_weight=0.75`、`region_weight=0.25`：
+
+| Setting | Accuracy | Macro-F1 |
+|---|---:|---:|
+| 5-way 1-shot | 80.32 +/- 12.87 | 78.31 +/- 14.30 |
+| 5-way 3-shot | 86.30 +/- 11.25 | 85.12 +/- 12.36 |
+| 5-way 5-shot | 85.72 +/- 10.85 | 84.29 +/- 12.21 |
+| 10-way 1-shot | 70.68 +/- 9.88 | 67.90 +/- 10.72 |
+| 10-way 5-shot | 75.45 +/- 9.13 | 72.83 +/- 10.17 |
+
+### 结论
+
+- score-level region-context 在 5-way 3-shot、10-way 1-shot、10-way 5-shot 上超过 pseudo concat fusion，分别提升 Accuracy `+2.38`、`+2.25`、`+2.07` 个百分点。
+- 5-way 1-shot 和 5-way 5-shot 略低于 pseudo concat fusion，说明当前 score-level 融合还不是稳定支配 concat 的替代方案。
+- 最佳权重始终偏向 whole-image，说明 pseudo region score 在定位噪声较大时应作为辅助信号，而不应占主导。
+- 5-way 3-shot 的 region-context Accuracy `86.30` 已超过 whole-image `85.38`，接近 GT concat fusion `87.14`，是当前自动定位路线中最有说服力的设置之一。
+
+### 后续待办
+
+- 继续优化 localizer，降低 pseudo ROI 噪声后再复测 region-context 权重。
+- 增加 score calibration 或 per-episode 自适应权重，避免固定权重在 5-way 1-shot/5-shot 上略低于 concat。
+- 补充 confusion/per-class 分析，判断 region-context 在 10-way 中改善了哪些易混类别。
+

@@ -38,23 +38,23 @@ Few-shot settings:
 
 ## 3. Accuracy Summary
 
-| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Pseudo-BBox Fusion | GT Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 5-way 1-shot | 82.10 | 79.62 | 63.80 | 80.50 | **83.62** | 82.48 | 83.08 | 82.48 |
-| 5-way 3-shot | 85.38 | 84.92 | 69.20 | 83.92 | 87.14 | 86.50 | **87.22** | 86.34 |
-| 5-way 5-shot | 86.84 | 88.06 | 67.92 | 85.80 | **89.66** | 89.42 | 89.46 | 87.90 |
-| 10-way 1-shot | 72.61 | 70.70 | 49.97 | 68.43 | 74.81 | 73.92 | **75.12** | 74.25 |
-| 10-way 5-shot | 77.16 | 80.14 | 51.40 | 73.38 | **81.88** | 81.53 | 81.60 | 79.32 |
+| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Pseudo-BBox Fusion | Best Region-Context | GT Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 5-way 1-shot | 82.10 | 79.62 | 63.80 | 80.50 | 80.32 | **83.62** | 82.48 | 83.08 | 82.48 |
+| 5-way 3-shot | 85.38 | 84.92 | 69.20 | 83.92 | 86.30 | 87.14 | 86.50 | **87.22** | 86.34 |
+| 5-way 5-shot | 86.84 | 88.06 | 67.92 | 85.80 | 85.72 | **89.66** | 89.42 | 89.46 | 87.90 |
+| 10-way 1-shot | 72.61 | 70.70 | 49.97 | 68.43 | 70.68 | 74.81 | 73.92 | **75.12** | 74.25 |
+| 10-way 5-shot | 77.16 | 80.14 | 51.40 | 73.38 | 75.45 | **81.88** | 81.53 | 81.60 | 79.32 |
 
 ## 4. Macro-F1 Summary
 
-| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Pseudo-BBox Fusion | GT Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 5-way 1-shot | 80.42 | 77.61 | 60.07 | 78.52 | **81.94** | 80.60 | 81.33 | 80.75 |
-| 5-way 3-shot | 84.15 | 83.67 | 66.39 | 82.64 | **85.97** | 85.31 | **85.97** | 85.18 |
-| 5-way 5-shot | 85.63 | 87.08 | 64.57 | 84.54 | **88.66** | 88.46 | 88.43 | 86.75 |
-| 10-way 1-shot | 70.19 | 68.16 | 45.44 | 65.52 | 72.58 | 71.51 | **72.80** | 71.96 |
-| 10-way 5-shot | 74.53 | 78.40 | 46.22 | 70.52 | **79.95** | 79.78 | 79.51 | 76.82 |
+| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Pseudo-BBox Fusion | Best Region-Context | GT Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 5-way 1-shot | 80.42 | 77.61 | 60.07 | 78.52 | 78.31 | **81.94** | 80.60 | 81.33 | 80.75 |
+| 5-way 3-shot | 84.15 | 83.67 | 66.39 | 82.64 | 85.12 | **85.97** | 85.31 | **85.97** | 85.18 |
+| 5-way 5-shot | 85.63 | 87.08 | 64.57 | 84.54 | 84.40 | **88.66** | 88.46 | 88.43 | 86.75 |
+| 10-way 1-shot | 70.19 | 68.16 | 45.44 | 65.52 | 67.90 | 72.58 | 71.51 | **72.80** | 71.96 |
+| 10-way 5-shot | 74.53 | 78.40 | 46.22 | 70.52 | 72.83 | **79.95** | 79.78 | 79.51 | 76.82 |
 
 ## 5. Detailed Tables
 
@@ -165,6 +165,34 @@ Fusion: whole-image DINOv2 + pseudo-bbox ROI DINOv2 concat
 Observation: pseudo-bbox + whole-image concat recovers most of the ROI-only performance loss despite weak pseudo localization. Accuracy improves by `+14.72` to `+21.98` points over pseudo-bbox ROI, and Macro-F1 improves by `+16.25` to `+24.30` points. The result approaches whole-image performance in 5-way settings, but remains below GT bbox + whole fusion, especially in 10-way 5-shot. This supports the region-context direction while showing that localization quality still limits the automatic pipeline.
 
 
+### 5.9 DINOv2 Pseudo-BBox Region-Context Prototype
+
+Whole feature file: `outputs/features/dinov2/mvtec_fs_train.jsonl`
+Region feature file: `outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl`
+Manifest: `data/manifests/mvtec_fs_pseudo_bbox_train.csv`
+Fusion: score-level whole-image prototype + pseudo-bbox ROI prototype
+
+| Whole W | Region W | Setting | Episodes | Accuracy | Balanced Acc | Macro-F1 |
+|---:|---:|---|---:|---:|---:|---:|
+| 0.25 | 0.75 | 5-way 1-shot | 200 | 76.00 +/- 13.65 | 76.00 +/- 13.65 | 73.75 +/- 14.99 |
+| 0.25 | 0.75 | 5-way 3-shot | 200 | 79.76 +/- 12.56 | 79.76 +/- 12.56 | 78.16 +/- 13.80 |
+| 0.25 | 0.75 | 5-way 5-shot | 200 | 82.28 +/- 12.68 | 82.28 +/- 12.68 | 80.93 +/- 13.76 |
+| 0.25 | 0.75 | 10-way 1-shot | 200 | 62.39 +/- 9.07 | 62.39 +/- 9.07 | 59.28 +/- 9.70 |
+| 0.25 | 0.75 | 10-way 5-shot | 200 | 69.01 +/- 9.53 | 69.01 +/- 9.53 | 65.79 +/- 10.45 |
+| 0.50 | 0.50 | 5-way 1-shot | 200 | 79.90 +/- 12.92 | 79.90 +/- 12.92 | 77.82 +/- 14.28 |
+| 0.50 | 0.50 | 5-way 3-shot | 200 | 83.58 +/- 12.39 | 83.58 +/- 12.39 | 82.11 +/- 13.82 |
+| 0.50 | 0.50 | 5-way 5-shot | 200 | 85.58 +/- 11.89 | 85.58 +/- 11.89 | 84.40 +/- 13.02 |
+| 0.50 | 0.50 | 10-way 1-shot | 200 | 68.89 +/- 10.05 | 68.89 +/- 10.05 | 65.80 +/- 10.88 |
+| 0.50 | 0.50 | 10-way 5-shot | 200 | 73.50 +/- 9.70 | 73.50 +/- 9.70 | 70.76 +/- 10.89 |
+| 0.75 | 0.25 | 5-way 1-shot | 200 | 80.32 +/- 12.87 | 80.32 +/- 12.87 | 78.31 +/- 14.30 |
+| 0.75 | 0.25 | 5-way 3-shot | 200 | 86.30 +/- 11.25 | 86.30 +/- 11.25 | 85.12 +/- 12.36 |
+| 0.75 | 0.25 | 5-way 5-shot | 200 | 85.72 +/- 10.85 | 85.72 +/- 10.85 | 84.29 +/- 12.21 |
+| 0.75 | 0.25 | 10-way 1-shot | 200 | 70.68 +/- 9.88 | 70.68 +/- 9.88 | 67.90 +/- 10.72 |
+| 0.75 | 0.25 | 10-way 5-shot | 200 | 75.45 +/- 9.13 | 75.45 +/- 9.13 | 72.83 +/- 10.17 |
+
+Observation: the best accuracy is consistently obtained with whole/region score weights `0.75/0.25`, showing that the pseudo region score is useful mainly as an auxiliary cue while localization is noisy. Compared with pseudo concat fusion, score-level region-context improves 5-way 3-shot and both 10-way settings, but is slightly lower in 5-way 1-shot and 5-way 5-shot. The method is therefore a promising explicit region-context baseline, but it still needs localization improvement or score calibration to reliably beat concat fusion.
+
+
 ## 6. Pseudo-BBox IoU Sweep
 
 This sweep evaluates the first `dinov2_patch_contrast` heatmap localizer before rerunning expensive ROI feature extraction.
@@ -250,6 +278,21 @@ Interpretation:
 
 Pseudo-bbox fusion recovers most ROI-only loss and nearly matches whole-image performance in 5-way settings. The remaining gap to GT fusion grows in 10-way settings, which suggests that better localization is still important when class confusion is harder.
 
+
+### 7.5 Region-Context vs Pseudo Concat
+
+This table compares the best-accuracy region-context setting, which is `whole_weight=0.75` and `region_weight=0.25` for every few-shot setting.
+
+| Setting | Region-Context Acc | Region-Context F1 | Delta Acc vs Pseudo Fusion | Delta F1 vs Pseudo Fusion | Delta Acc vs Whole | Delta Acc vs GT Fusion |
+|---|---:|---:|---:|---:|---:|---:|
+| 5-way 1-shot | 80.32 | 78.31 | -0.18 | -0.21 | -1.78 | -3.30 |
+| 5-way 3-shot | 86.30 | 85.12 | +2.38 | +2.48 | +0.92 | -0.84 |
+| 5-way 5-shot | 85.72 | 84.29 | -0.08 | -0.25 | -1.12 | -3.94 |
+| 10-way 1-shot | 70.68 | 67.90 | +2.25 | +2.38 | -1.93 | -4.13 |
+| 10-way 5-shot | 75.45 | 72.83 | +2.07 | +2.31 | -1.71 | -6.43 |
+
+Score-level region-context improves over pseudo concat fusion in 3 of 5 settings, including both 10-way settings, and the best weight always favors whole-image context. This confirms that pseudo ROI scores are useful, but should be down-weighted until the localizer becomes more accurate.
+
 ## 8. Conclusions
 
 1. DINOv2 whole-image prototype is already a strong baseline, reaching `82.10%` accuracy in 5-way 1-shot.
@@ -260,6 +303,7 @@ Pseudo-bbox fusion recovers most ROI-only loss and nearly matches whole-image pe
 6. Alpha 0.25 is generally more stable than alpha 0.75, suggesting that defect-region features are important but need global context as a complement.
 7. The first automatic `patch-contrast` pseudo-bbox ROI result is much weaker than all DINOv2 baselines, so the current bottleneck is localization quality rather than the prototype classifier itself.
 8. Pseudo-bbox + whole-image fusion recovers most ROI-only loss and approaches whole-image performance in 5-way settings, confirming that global context is crucial when automatic localization is noisy.
+9. Score-level region-context with `whole_weight=0.75` improves over pseudo concat fusion in 5-way 3-shot and both 10-way settings, but should keep region scores auxiliary until localization quality improves.
 
 ## 9. Paper-Writing Takeaway
 
@@ -285,5 +329,5 @@ Recommended next implementation target:
 ```text
 stronger anomaly heatmap localizer
   -> better pseudo bbox / pseudo mask
-  -> explicit region-context prototype beyond simple concat
+  -> calibrated or adaptive region-context prototype
 ```
