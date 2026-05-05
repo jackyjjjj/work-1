@@ -293,6 +293,66 @@ This table compares the best-accuracy region-context setting, which is `whole_we
 
 Score-level region-context improves over pseudo concat fusion in 3 of 5 settings, including both 10-way settings, and the best weight always favors whole-image context. This confirms that pseudo ROI scores are useful, but should be down-weighted until the localizer becomes more accurate.
 
+### 7.6 Region-Context 10-way 5-shot Confusion Analysis
+
+This diagnostic compares the best fixed-weight score fusion (`whole_weight=0.75`, `region_weight=0.25`) against pseudo-bbox concat fusion on the same 200 sampled 10-way 5-shot episodes. The metrics below are query-pooled over 10,000 query predictions, so they can differ slightly from the episode-mean grid in Section 5.9.
+
+| Model | Accuracy | Balanced Acc | Macro-F1 | Queries |
+|---|---:|---:|---:|---:|
+| region_context | 0.7480 | 0.7523 | 0.7369 | 10000 |
+| pseudo_concat | 0.7272 | 0.7315 | 0.7165 | 10000 |
+| Delta | +0.0208 | +0.0208 | +0.0204 | - |
+
+Top recall gains from score-level region-context:
+
+| Class | Queries | Recall Delta | F1 Delta | Observation |
+|---|---:|---:|---:|---|
+| fabric_border | 310 | +0.1581 | +0.1102 | Largest gain; region score helps separate border defects from interior/broken-teeth distractors. |
+| squeeze | 270 | +0.0889 | +0.0476 | Strong recall gain with already high absolute recall. |
+| squeezed_teeth | 295 | +0.0746 | +0.0493 | Reduces but does not remove confusion with `split_teeth`. |
+| split_teeth | 285 | +0.0737 | +0.0544 | Region signal helps fine tooth-structure classes. |
+| faulty_imprint | 310 | +0.0645 | +0.0323 | Improves one of the visually ambiguous surface-mark classes. |
+| hole | 240 | +0.0500 | +0.0443 | Region evidence is useful when the defect shape is localized. |
+| scratch_head | 260 | +0.0462 | +0.0274 | Improves recall, but still confused with scratch-neck/manipulated-front labels. |
+| missing_cable | 220 | +0.0455 | +0.0247 | High absolute recall; region score gives a small but consistent boost. |
+| thread | 315 | +0.0381 | +0.0053 | Recall gain is partly offset by precision/confusion pressure. |
+| thread_top | 280 | +0.0357 | +0.0215 | Still has symmetric confusion with `thread_side`. |
+
+Classes with recall regression or mixed precision/recall trade-offs:
+
+| Class | Queries | Recall Delta | F1 Delta | Observation |
+|---|---:|---:|---:|---|
+| scratch_neck | 265 | -0.0453 | -0.0250 | Largest degradation; often competes with scratch-head/thread-side/manipulated-front. |
+| bent | 285 | -0.0316 | +0.0178 | Recall drops but F1 rises, indicating fewer false positives or better precision. |
+| manipulated_front | 265 | -0.0302 | -0.0079 | Degrades slightly; region cue likely overfits to local scratch-like evidence. |
+| color | 280 | -0.0286 | -0.0133 | Region score is not helpful for global/appearance color defects. |
+| crack | 360 | -0.0111 | +0.0078 | Recall drops slightly but F1 rises. |
+| fabric_interior | 295 | -0.0102 | +0.0305 | Recall drops, but precision/F1 improve versus pseudo concat. |
+| gray_stroke | 250 | +0.0000 | -0.0050 | Recall unchanged; small F1 loss suggests score calibration noise. |
+
+Top region-context confusion pairs:
+
+| True | Pred | Count | Fraction Of True |
+|---|---|---:|---:|
+| rough | broken_teeth | 48 | 0.1477 |
+| squeezed_teeth | split_teeth | 46 | 0.1559 |
+| rough | fabric_interior | 46 | 0.1415 |
+| scratch_head | scratch_neck | 43 | 0.1654 |
+| thread_side | scratch_neck | 42 | 0.1273 |
+| manipulated_front | scratch_neck | 41 | 0.1547 |
+| thread_top | thread_side | 41 | 0.1464 |
+| thread_side | thread_top | 40 | 0.1212 |
+| poke | glue | 37 | 0.1423 |
+| crack | faulty_imprint | 37 | 0.1028 |
+
+Interpretation:
+
+1. The query-pooled result confirms the grid-level finding: explicit score-level region-context beats pseudo concat in 10-way 5-shot by about `+2.08` accuracy points and `+2.04` Macro-F1 points.
+2. The largest gains come from localized structural labels such as `fabric_border`, tooth defects, `hole`, and `missing_cable`, which supports keeping pseudo region evidence as an auxiliary signal.
+3. Regressions are concentrated in appearance/global or very similar fine-grained labels (`color`, `manipulated_front`, `scratch_neck`), suggesting that one fixed weight is not ideal for every class or episode.
+4. Persistent confusion pairs are mostly within product/defect families: tooth labels, thread-side/top labels, scratch-head/neck/manipulated-front labels, and rough/fabric/broken-teeth labels.
+5. The next useful ablation is to repeat this diagnostic for 10-way 1-shot, then test narrower fixed weights (`0.60/0.40` through `0.90/0.10`) or confidence-based adaptive weighting.
+
 ## 8. Conclusions
 
 1. DINOv2 whole-image prototype is already a strong baseline, reaching `82.10%` accuracy in 5-way 1-shot.
@@ -304,6 +364,7 @@ Score-level region-context improves over pseudo concat fusion in 3 of 5 settings
 7. The first automatic `patch-contrast` pseudo-bbox ROI result is much weaker than all DINOv2 baselines, so the current bottleneck is localization quality rather than the prototype classifier itself.
 8. Pseudo-bbox + whole-image fusion recovers most ROI-only loss and approaches whole-image performance in 5-way settings, confirming that global context is crucial when automatic localization is noisy.
 9. Score-level region-context with `whole_weight=0.75` improves over pseudo concat fusion in 5-way 3-shot and both 10-way settings, but should keep region scores auxiliary until localization quality improves.
+10. Per-class confusion analysis shows that region-context mainly improves localized structural classes, while appearance/global classes and scratch-like fine-grained classes need score calibration or adaptive weights.
 
 ## 9. Paper-Writing Takeaway
 

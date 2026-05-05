@@ -1,5 +1,18 @@
 # Handoff Summary
 
+
+## Latest Update - 2026-05-05 15:40 +08:00
+
+Use this section as the current state; older sections below are historical context.
+
+- `scripts/analyze_region_context_confusion.py` has been implemented and committed in `81c09d2 Add region context confusion analysis`.
+- The 10-way 5-shot confusion diagnostic has been run on 200 episodes / 10,000 query predictions.
+- Query-pooled result: region-context `0.7480` Accuracy / `0.7369` Macro-F1 vs pseudo concat `0.7272` Accuracy / `0.7165` Macro-F1.
+- Biggest recall gains: `fabric_border` (+0.1581), `squeeze` (+0.0889), `squeezed_teeth` (+0.0746), `split_teeth` (+0.0737), `faulty_imprint` (+0.0645), `hole` (+0.0500).
+- Main recall regressions: `scratch_neck` (-0.0453), `bent` (-0.0316), `manipulated_front` (-0.0302), `color` (-0.0286), `crack` (-0.0111), `fabric_interior` (-0.0102).
+- Interpretation: fixed score-level region-context helps localized structural defects, but global/appearance and scratch-like fine-grained labels need calibrated or adaptive weighting.
+- Immediate next step: run the same confusion diagnostic for 10-way 1-shot, then try narrower fixed weights or confidence-based adaptive weighting.
+
 ## 目标
 
 本项目目标是实现并验证 **Auto-Mask MVREC / localization-guided few-shot industrial defect classification** 研究路线：以 MVREC 作为 baseline/reference，在主工程中独立实现一个面向小样本工业缺陷分类的定位引导方法。

@@ -835,3 +835,43 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 对 10-way 1-shot 也运行同一脚本，比较低 shot 和高 shot 的混淆模式是否一致。
 - 根据 per-class delta 决定下一步是做 score calibration、adaptive weight，还是优先修复特定类别的 pseudo localization。
 
+## 2026-05-05 15:40 +08:00
+
+### 修改目的
+
+记录服务器端 10-way 5-shot region-context confusion 分析结果，明确 score-level region-context 相比 pseudo concat fusion 的类别级收益、退化类别和主要混淆对。
+
+### 涉及文件
+
+- `experiments/dinov2_baselines.md`
+- `docs/change_log.md`
+- `handoff.md`
+
+### 记录的实验结果
+
+- Manifest: `data/manifests/mvtec_fs_pseudo_bbox_train.csv`
+- Setting: `10-way 5-shot`
+- Episodes: `200`
+- Query predictions: `10000`
+- Whole/region weights: `0.75/0.25`
+- Baseline: `outputs/features/dinov2_pseudo_fusion_concat/mvtec_fs_train.jsonl`
+
+| Model | Accuracy | Balanced Acc | Macro-F1 |
+|---|---:|---:|---:|
+| region_context | 0.7480 | 0.7523 | 0.7369 |
+| pseudo_concat | 0.7272 | 0.7315 | 0.7165 |
+| Delta | +0.0208 | +0.0208 | +0.0204 |
+
+### 结论
+
+- 该 query-pooled 结果验证了 grid 结果：region-context 在 10-way 5-shot 上稳定优于 pseudo concat fusion，Accuracy 和 Macro-F1 约提升 2 个百分点。
+- 最大 recall gain 来自 `fabric_border`、`squeeze`、`squeezed_teeth`、`split_teeth`、`faulty_imprint`、`hole` 等局部结构/局部形状相关类别，说明 pseudo region score 虽 noisy，但仍有可用定位信息。
+- 主要 recall regression 集中在 `scratch_neck`、`bent`、`manipulated_front`、`color`、`crack`、`fabric_interior` 等类别；其中部分类别 F1 仍提升，说明固定权重会改变 precision/recall trade-off。
+- 主要混淆仍发生在同产品/相似缺陷族内，例如 tooth labels、thread top/side、scratch head/neck/manipulated-front、rough/fabric/broken-teeth。
+- 下一步建议先跑 10-way 1-shot confusion，再实现更细的固定权重扫描或 confidence-based adaptive weighting。
+
+### 后续待办
+
+- 在服务器上运行 10-way 1-shot confusion 分析，比较低 shot 和高 shot 的类别收益/退化是否一致。
+- 增加 `whole_weight=0.60,0.70,0.80,0.85,0.90` 等更细扫描，判断最佳固定权重是否落在 `0.75` 附近。
+- 设计 score calibration / adaptive weight，降低 `scratch_neck`、`color`、`manipulated_front` 等类别的固定权重副作用。
