@@ -548,3 +548,53 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 
 - 服务器 `run.sh` 中生成 train heatmap 后，构建 pseudo-bbox manifest 时同步加上 `--split train`。
 - 后续如果要生成 test/val 的 pseudo-bbox manifest，需要先对应生成 test/val heatmap JSONL，或者使用 `--split all` 且 heatmap 文件覆盖全部 manifest 行。
+
+## 2026-05-05 00:40 +08:00
+
+### 修改目的
+
+记录第一版 DINOv2 patch-contrast pseudo-bbox ROI few-shot 结果，并新增 pseudo bbox 与 GT bbox 的 IoU 诊断工具。当前 pseudo-bbox ROI 结果明显低于 whole-image、GT bbox/ROI 和 region-global fusion，说明瓶颈主要在自动定位质量，而不是 prototype 分类器。
+
+### 涉及文件
+
+- `experiments/dinov2_baselines.md`
+- `scripts/evaluate_pseudo_bbox_iou.py`
+- `scripts/check_pseudo_bbox_iou.py`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 在 `experiments/dinov2_baselines.md` 中加入 pseudo-bbox ROI 结果表。
+- 在 Accuracy 和 Macro-F1 总表中加入 `Pseudo-BBox ROI` 列。
+- 新增 `scripts/evaluate_pseudo_bbox_iou.py`，对齐 GT manifest 与 pseudo manifest，计算 per-image IoU、Pseudo/GT 面积比、Recall@IoU 和最差样本。
+- 新增 `scripts/check_pseudo_bbox_iou.py`，轻量验证 bbox 解析、IoU 计算、JSON/Markdown/CSV 输出。
+- README 增加 IoU 诊断命令和 pseudo-bbox fusion 命令。
+- 更新实验结论：当前 `patch-contrast` 伪框定位质量不足，下一步应先诊断 IoU 并尝试 pseudo-bbox + whole-image fusion。
+
+### 记录的实验结果
+
+- Manifest: `data/manifests/mvtec_fs_pseudo_bbox_train.csv`
+- Feature file: `outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl`
+- Localizer: `dinov2_patch_contrast`
+
+| Setting | Accuracy | Macro-F1 |
+|---|---:|---:|
+| 5-way 1-shot | 63.80 +/- 14.29 | 60.07 +/- 15.94 |
+| 5-way 3-shot | 69.20 +/- 12.79 | 66.39 +/- 14.21 |
+| 5-way 5-shot | 67.92 +/- 13.78 | 64.57 +/- 15.56 |
+| 10-way 1-shot | 49.97 +/- 9.48 | 45.44 +/- 10.03 |
+| 10-way 5-shot | 51.40 +/- 8.14 | 46.22 +/- 8.99 |
+
+### 验证命令和结果
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox_iou.py
+```
+
+结果：通过，输出 `pseudo-bbox-iou-check-ok`。
+
+### 后续待办
+
+- 在服务器上运行 `scripts/evaluate_pseudo_bbox_iou.py`，量化 pseudo bbox 与 GT bbox 的 IoU。
+- 用 `fuse_feature_cache.py` 将 whole-image 特征和 pseudo-bbox ROI 特征做 concat fusion，检查上下文是否能恢复性能。
+- 根据 IoU 结果调 `--percentile`、`--min-area-ratio`，或替换为 nearest-memory / PatchCore localizer。

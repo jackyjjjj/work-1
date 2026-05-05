@@ -38,23 +38,23 @@ Few-shot settings:
 
 ## 3. Accuracy Summary
 
-| Setting | Whole | BBox/ROI | Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
-|---|---:|---:|---:|---:|---:|---:|
-| 5-way 1-shot | 82.10 | 79.62 | **83.62** | 82.48 | 83.08 | 82.48 |
-| 5-way 3-shot | 85.38 | 84.92 | 87.14 | 86.50 | **87.22** | 86.34 |
-| 5-way 5-shot | 86.84 | 88.06 | **89.66** | 89.42 | 89.46 | 87.90 |
-| 10-way 1-shot | 72.61 | 70.70 | 74.81 | 73.92 | **75.12** | 74.25 |
-| 10-way 5-shot | 77.16 | 80.14 | **81.88** | 81.53 | 81.60 | 79.32 |
+| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 5-way 1-shot | 82.10 | 79.62 | 63.80 | **83.62** | 82.48 | 83.08 | 82.48 |
+| 5-way 3-shot | 85.38 | 84.92 | 69.20 | 87.14 | 86.50 | **87.22** | 86.34 |
+| 5-way 5-shot | 86.84 | 88.06 | 67.92 | **89.66** | 89.42 | 89.46 | 87.90 |
+| 10-way 1-shot | 72.61 | 70.70 | 49.97 | 74.81 | 73.92 | **75.12** | 74.25 |
+| 10-way 5-shot | 77.16 | 80.14 | 51.40 | **81.88** | 81.53 | 81.60 | 79.32 |
 
 ## 4. Macro-F1 Summary
 
-| Setting | Whole | BBox/ROI | Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
-|---|---:|---:|---:|---:|---:|---:|
-| 5-way 1-shot | 80.42 | 77.61 | **81.94** | 80.60 | 81.33 | 80.75 |
-| 5-way 3-shot | 84.15 | 83.67 | **85.97** | 85.31 | **85.97** | 85.18 |
-| 5-way 5-shot | 85.63 | 87.08 | **88.66** | 88.46 | 88.43 | 86.75 |
-| 10-way 1-shot | 70.19 | 68.16 | 72.58 | 71.51 | **72.80** | 71.96 |
-| 10-way 5-shot | 74.53 | 78.40 | **79.95** | 79.78 | 79.51 | 76.82 |
+| Setting | Whole | BBox/ROI | Pseudo-BBox ROI | Concat Fusion | Alpha 0.25 | Alpha 0.5 | Alpha 0.75 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 5-way 1-shot | 80.42 | 77.61 | 60.07 | **81.94** | 80.60 | 81.33 | 80.75 |
+| 5-way 3-shot | 84.15 | 83.67 | 66.39 | **85.97** | 85.31 | **85.97** | 85.18 |
+| 5-way 5-shot | 85.63 | 87.08 | 64.57 | **88.66** | 88.46 | 88.43 | 86.75 |
+| 10-way 1-shot | 70.19 | 68.16 | 45.44 | 72.58 | 71.51 | **72.80** | 71.96 |
+| 10-way 5-shot | 74.53 | 78.40 | 46.22 | **79.95** | 79.78 | 79.51 | 76.82 |
 
 ## 5. Detailed Tables
 
@@ -130,6 +130,22 @@ Feature file: `outputs/features/dinov2_fusion_alpha075/mvtec_fs_train.jsonl`
 | 10-way 1-shot | 200 | 74.25 +/- 9.52 | 74.25 +/- 9.52 | 71.96 +/- 10.42 |
 | 10-way 5-shot | 200 | 79.32 +/- 8.59 | 79.32 +/- 8.59 | 76.82 +/- 9.74 |
 
+### 5.7 DINOv2 Pseudo-BBox ROI Prototype
+
+Feature file: `outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl`
+Manifest: `data/manifests/mvtec_fs_pseudo_bbox_train.csv`
+Localizer: `dinov2_patch_contrast` heatmap -> pseudo bbox
+
+| Setting | Episodes | Accuracy | Balanced Acc | Macro-F1 |
+|---|---:|---:|---:|---:|
+| 5-way 1-shot | 200 | 63.80 +/- 14.29 | 63.80 +/- 14.29 | 60.07 +/- 15.94 |
+| 5-way 3-shot | 200 | 69.20 +/- 12.79 | 69.20 +/- 12.79 | 66.39 +/- 14.21 |
+| 5-way 5-shot | 200 | 67.92 +/- 13.78 | 67.92 +/- 13.78 | 64.57 +/- 15.56 |
+| 10-way 1-shot | 200 | 49.97 +/- 9.48 | 49.97 +/- 9.48 | 45.44 +/- 10.03 |
+| 10-way 5-shot | 200 | 51.40 +/- 8.14 | 51.40 +/- 8.14 | 46.22 +/- 8.99 |
+
+Observation: this starter pseudo-bbox ROI baseline is much lower than whole-image, GT bbox/ROI, and fusion. The result suggests that the first `patch-contrast` localizer is not accurate enough for ROI-only classification, and that pseudo-localization quality should be diagnosed before treating pseudo-bbox ROI as a final method.
+
 ## 6. Delta Analysis
 
 ### 6.1 BBox/ROI vs Whole-Image
@@ -170,6 +186,7 @@ Feature file: `outputs/features/dinov2_fusion_alpha075/mvtec_fs_train.jsonl`
 4. Region-global fusion consistently improves over both whole-image and BBox/ROI baselines.
 5. Concat fusion is the most stable simple fusion strategy; weighted-sum is more sensitive to the global-region balance.
 6. Alpha 0.25 is generally more stable than alpha 0.75, suggesting that defect-region features are important but need global context as a complement.
+7. The first automatic `patch-contrast` pseudo-bbox ROI result is much weaker than all DINOv2 baselines, so the current bottleneck is localization quality rather than the prototype classifier itself.
 
 ## 8. Paper-Writing Takeaway
 

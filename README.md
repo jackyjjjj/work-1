@@ -323,3 +323,40 @@ python scripts/extract_dinov2_features.py \
 ```
 
 Finally run the same grid with `data/manifests/mvtec_fs_pseudo_bbox_train.csv` and `outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl`.
+
+Diagnose pseudo-bbox quality against the GT LabelMe bbox:
+
+```bash
+mkdir -p outputs/diagnostics
+python scripts/evaluate_pseudo_bbox_iou.py \
+  --gt-manifest data/manifests/mvtec_fs.csv \
+  --pseudo-manifest data/manifests/mvtec_fs_pseudo_bbox_train.csv \
+  --split train \
+  --output-json outputs/diagnostics/pseudo_bbox_iou_train.json \
+  --output-md outputs/diagnostics/pseudo_bbox_iou_train.md \
+  --output-csv outputs/diagnostics/pseudo_bbox_iou_train.csv
+```
+
+If pseudo-bbox ROI is weak, test whether whole-image context recovers performance by fusing whole-image and pseudo-bbox features:
+
+```bash
+mkdir -p outputs/features/dinov2_pseudo_fusion_concat
+python scripts/fuse_feature_cache.py \
+  --whole-file outputs/features/dinov2/mvtec_fs_train.jsonl \
+  --region-file outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl \
+  --method concat \
+  --output outputs/features/dinov2_pseudo_fusion_concat/mvtec_fs_train.jsonl \
+  --overwrite
+
+python scripts/run_fewshot_grid.py \
+  --manifest data/manifests/mvtec_fs_pseudo_bbox_train.csv \
+  --split train \
+  --grid 5:1,5:3,5:5,10:1,10:5 \
+  --q-queries 5 \
+  --episodes 200 \
+  --feature-source cached \
+  --feature-file outputs/features/dinov2_pseudo_fusion_concat/mvtec_fs_train.jsonl \
+  --feature-dim 768 \
+  --output-json outputs/results/dinov2_pseudo_fusion_concat_grid.json \
+  --output-md outputs/results/dinov2_pseudo_fusion_concat_grid.md
+```
