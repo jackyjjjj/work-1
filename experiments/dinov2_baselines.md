@@ -353,6 +353,42 @@ Interpretation:
 4. Persistent confusion pairs are mostly within product/defect families: tooth labels, thread-side/top labels, scratch-head/neck/manipulated-front labels, and rough/fabric/broken-teeth labels.
 5. The next useful ablation is to repeat this diagnostic for 10-way 1-shot, then test narrower fixed weights (`0.60/0.40` through `0.90/0.10`) or confidence-based adaptive weighting.
 
+### 7.7 Region-Context Fine Weight Sweep (10-way)
+
+This sweep narrows the fixed score-level whole/region weights for the two 10-way settings. It uses the same pseudo-bbox region features as Section 5.9 and keeps the region score weight as `1 - whole_weight`.
+
+| Whole W | Region W | Setting | Episodes | Accuracy | Balanced Acc | Macro-F1 |
+|---:|---:|---|---:|---:|---:|---:|
+| 0.60 | 0.40 | 10-way 1-shot | 200 | 71.31 +/- 10.05 | 71.31 +/- 10.05 | 68.40 +/- 11.05 |
+| 0.60 | 0.40 | 10-way 5-shot | 200 | 74.17 +/- 9.64 | 74.17 +/- 9.64 | 71.64 +/- 10.67 |
+| 0.65 | 0.35 | 10-way 1-shot | 200 | 69.68 +/- 10.92 | 69.68 +/- 10.92 | 66.68 +/- 11.81 |
+| 0.65 | 0.35 | 10-way 5-shot | 200 | 75.42 +/- 9.47 | 75.42 +/- 9.47 | 72.81 +/- 10.61 |
+| 0.70 | 0.30 | 10-way 1-shot | 200 | 71.62 +/- 9.88 | 71.62 +/- 9.88 | 68.88 +/- 10.90 |
+| 0.70 | 0.30 | 10-way 5-shot | 200 | 74.78 +/- 8.23 | 74.78 +/- 8.23 | 72.09 +/- 9.45 |
+| 0.75 | 0.25 | 10-way 1-shot | 200 | 70.90 +/- 10.30 | 70.90 +/- 10.30 | 67.94 +/- 11.29 |
+| 0.75 | 0.25 | 10-way 5-shot | 200 | 75.55 +/- 9.57 | 75.55 +/- 9.57 | 72.94 +/- 10.51 |
+| 0.80 | 0.20 | 10-way 1-shot | 200 | 71.59 +/- 9.72 | 71.59 +/- 9.72 | 68.77 +/- 10.72 |
+| 0.80 | 0.20 | 10-way 5-shot | 200 | 76.57 +/- 9.28 | 76.57 +/- 9.28 | 74.15 +/- 10.56 |
+| 0.85 | 0.15 | 10-way 1-shot | 200 | 70.94 +/- 10.24 | 70.94 +/- 10.24 | 68.09 +/- 11.16 |
+| 0.85 | 0.15 | 10-way 5-shot | 200 | 75.87 +/- 9.78 | 75.87 +/- 9.78 | 73.16 +/- 11.06 |
+| 0.90 | 0.10 | 10-way 1-shot | 200 | 73.23 +/- 10.10 | 73.23 +/- 10.10 | 70.74 +/- 10.96 |
+| 0.90 | 0.10 | 10-way 5-shot | 200 | 75.99 +/- 9.42 | 75.99 +/- 9.42 | 73.43 +/- 10.33 |
+
+Best fixed weights in this sweep:
+
+| Setting | Best Whole/Region W | Accuracy | Macro-F1 | Delta Acc vs 0.75 in sweep | Delta Acc vs Pseudo Concat | Delta Acc vs Whole |
+|---|---:|---:|---:|---:|---:|---:|
+| 10-way 1-shot | 0.90 / 0.10 | 73.23 | 70.74 | +2.33 | +4.80 | +0.62 |
+| 10-way 5-shot | 0.80 / 0.20 | 76.57 | 74.15 | +1.02 | +3.19 | -0.59 |
+
+Interpretation:
+
+1. The best 10-way weights are more whole-image-heavy than the earlier coarse scan suggested: `0.90/0.10` for 1-shot and `0.80/0.20` for 5-shot.
+2. This confirms that the current pseudo-bbox region signal is helpful but should remain lightly weighted while localization quality is weak.
+3. The 10-way 1-shot setting benefits most from stronger whole context and a small region correction, exceeding both pseudo concat fusion and the whole-image baseline.
+4. The 10-way 5-shot setting improves clearly over pseudo concat fusion, but still remains slightly below whole-image accuracy; this suggests that better localization or adaptive calibration is still needed for high-shot 10-way classification.
+5. The next diagnostic should rerun per-class confusion at the new best weights (`0.90/0.10` for 10-way 1-shot and `0.80/0.20` for 10-way 5-shot) before implementing adaptive weights.
+
 ## 8. Conclusions
 
 1. DINOv2 whole-image prototype is already a strong baseline, reaching `82.10%` accuracy in 5-way 1-shot.
@@ -365,6 +401,7 @@ Interpretation:
 8. Pseudo-bbox + whole-image fusion recovers most ROI-only loss and approaches whole-image performance in 5-way settings, confirming that global context is crucial when automatic localization is noisy.
 9. Score-level region-context with `whole_weight=0.75` improves over pseudo concat fusion in 5-way 3-shot and both 10-way settings, but should keep region scores auxiliary until localization quality improves.
 10. Per-class confusion analysis shows that region-context mainly improves localized structural classes, while appearance/global classes and scratch-like fine-grained classes need score calibration or adaptive weights.
+11. Fine 10-way weight scanning moves the best fixed weights toward whole-heavy fusion (`0.90/0.10` for 1-shot and `0.80/0.20` for 5-shot), confirming that the current pseudo region signal should be a small correction rather than a dominant branch.
 
 ## 9. Paper-Writing Takeaway
 

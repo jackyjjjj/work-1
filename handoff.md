@@ -1,6 +1,18 @@
 # Handoff Summary
 
 
+## Latest Update - 2026-05-05 22:17 +08:00
+
+Use this section as the current state; older sections below are historical context.
+
+- Fine 10-way region-context weight sweep has been run for `whole_weight=0.60,0.65,0.70,0.75,0.80,0.85,0.90`.
+- Best 10-way 1-shot fixed weight: `whole_weight=0.90`, `region_weight=0.10`, Accuracy `73.23 +/- 10.10`, Macro-F1 `70.74 +/- 10.96`.
+- Best 10-way 5-shot fixed weight: `whole_weight=0.80`, `region_weight=0.20`, Accuracy `76.57 +/- 9.28`, Macro-F1 `74.15 +/- 10.56`.
+- Compared with pseudo concat fusion, these best weights improve Accuracy by `+4.80` points for 10-way 1-shot and `+3.19` points for 10-way 5-shot.
+- Interpretation: current pseudo-bbox region evidence is useful as a small correction, but should be whole-heavy because localization remains noisy.
+- Immediate next step: rerun per-class confusion at `0.90/0.10` for 10-way 1-shot and `0.80/0.20` for 10-way 5-shot, then decide whether to implement adaptive weighting.
+
+
 ## Latest Update - 2026-05-05 15:40 +08:00
 
 Use this section as the current state; older sections below are historical context.

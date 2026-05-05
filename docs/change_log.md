@@ -875,3 +875,42 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 在服务器上运行 10-way 1-shot confusion 分析，比较低 shot 和高 shot 的类别收益/退化是否一致。
 - 增加 `whole_weight=0.60,0.70,0.80,0.85,0.90` 等更细扫描，判断最佳固定权重是否落在 `0.75` 附近。
 - 设计 score calibration / adaptive weight，降低 `scratch_neck`、`color`、`manipulated_front` 等类别的固定权重副作用。
+
+## 2026-05-05 22:17 +08:00
+
+### 修改目的
+
+记录 10-way region-context 细粒度固定权重扫描结果，判断 `whole_weight=0.75` 是否仍是最佳，以及当前 pseudo region score 应该占多大权重。
+
+### 涉及文件
+
+- `experiments/dinov2_baselines.md`
+- `docs/change_log.md`
+- `handoff.md`
+
+### 记录的实验结果
+
+- Manifest: `data/manifests/mvtec_fs_pseudo_bbox_train.csv`
+- Split: `train`
+- Whole feature file: `outputs/features/dinov2/mvtec_fs_train.jsonl`
+- Region feature file: `outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl`
+- Sweep: `whole_weight=0.60,0.65,0.70,0.75,0.80,0.85,0.90`
+- Settings: `10-way 1-shot`, `10-way 5-shot`
+
+| Setting | Best Whole/Region W | Accuracy | Macro-F1 | Delta Acc vs 0.75 in sweep | Delta Acc vs Pseudo Concat | Delta Acc vs Whole |
+|---|---:|---:|---:|---:|---:|---:|
+| 10-way 1-shot | 0.90 / 0.10 | 73.23 +/- 10.10 | 70.74 +/- 10.96 | +2.33 | +4.80 | +0.62 |
+| 10-way 5-shot | 0.80 / 0.20 | 76.57 +/- 9.28 | 74.15 +/- 10.56 | +1.02 | +3.19 | -0.59 |
+
+### 结论
+
+- 细权重扫描推翻了“0.75 始终最佳”的粗粒度结论：10-way 1-shot 最佳为 `0.90/0.10`，10-way 5-shot 最佳为 `0.80/0.20`。
+- 当前 pseudo-bbox region score 仍然有用，但由于定位噪声较大，更适合作为小权重 correction，而不是和 whole-image score 接近等权融合。
+- 10-way 1-shot 在 `0.90/0.10` 下已经超过 whole-image baseline，说明极低 shot 时少量 region evidence 可以补充全局原型。
+- 10-way 5-shot 在 `0.80/0.20` 下显著超过 pseudo concat fusion，但仍略低于 whole-image accuracy，说明还需要更好的 localization 或 adaptive calibration。
+
+### 后续待办
+
+- 用新最佳权重重跑 per-class confusion：10-way 1-shot 使用 `whole_weight=0.90`，10-way 5-shot 使用 `whole_weight=0.80`。
+- 对比新旧 confusion，确认 `scratch_neck`、`color`、`manipulated_front` 等退化类别是否随 region 权重降低而改善。
+- 如果新最佳权重仍存在类别级退化，再实现 confidence-based adaptive weighting 或 score normalization。
