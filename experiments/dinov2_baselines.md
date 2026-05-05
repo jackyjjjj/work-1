@@ -357,6 +357,8 @@ Interpretation:
 
 This sweep narrows the fixed score-level whole/region weights for the two 10-way settings. It uses the same pseudo-bbox region features as Section 5.9 and keeps the region score weight as `1 - whole_weight`.
 
+Note: the original sweep command used different episode seeds for different weights. `scripts/run_region_context_grid.py` has now been fixed to keep episodes paired across weights, so this table should be treated as a useful but unpaired screening run until rerun with the patched script.
+
 | Whole W | Region W | Setting | Episodes | Accuracy | Balanced Acc | Macro-F1 |
 |---:|---:|---|---:|---:|---:|---:|
 | 0.60 | 0.40 | 10-way 1-shot | 200 | 71.31 +/- 10.05 | 71.31 +/- 10.05 | 68.40 +/- 11.05 |
@@ -389,6 +391,79 @@ Interpretation:
 4. The 10-way 5-shot setting improves clearly over pseudo concat fusion, but still remains slightly below whole-image accuracy; this suggests that better localization or adaptive calibration is still needed for high-shot 10-way classification.
 5. The next diagnostic should rerun per-class confusion at the new best weights (`0.90/0.10` for 10-way 1-shot and `0.80/0.20` for 10-way 5-shot) before implementing adaptive weights.
 
+### 7.8 Region-Context New-Best-Weight Confusion Analysis
+
+After the fine weight sweep, confusion diagnostics were rerun with the new best fixed weights: `0.90/0.10` for 10-way 1-shot and `0.80/0.20` for 10-way 5-shot. The 10-way 5-shot result is directly comparable to Section 7.6 because it uses the same 200 sampled episodes and pseudo concat baseline.
+
+| Setting | Whole/Region W | Model | Accuracy | Balanced Acc | Macro-F1 | Queries | Delta Acc vs Pseudo Concat | Delta F1 vs Pseudo Concat |
+|---|---:|---|---:|---:|---:|---:|---:|---:|
+| 10-way 1-shot | 0.90 / 0.10 | region_context | 0.7342 | 0.7226 | 0.7120 | 10000 | +0.0315 | +0.0284 |
+| 10-way 1-shot | - | pseudo_concat | 0.7027 | 0.6925 | 0.6836 | 10000 | - | - |
+| 10-way 5-shot | 0.80 / 0.20 | region_context | 0.7506 | 0.7547 | 0.7393 | 10000 | +0.0234 | +0.0228 |
+| 10-way 5-shot | - | pseudo_concat | 0.7272 | 0.7315 | 0.7165 | 10000 | - | - |
+
+Largest 10-way 1-shot recall gains at `0.90/0.10`:
+
+| Class | Queries | Recall Delta | F1 Delta |
+|---|---:|---:|---:|
+| cut_outer_insulation | 285 | +0.1509 | +0.0729 |
+| bent_wire | 230 | +0.1478 | +0.1192 |
+| print | 240 | +0.1375 | +0.0931 |
+| metal_contamination | 170 | +0.1353 | +0.0740 |
+| missing_wire | 265 | +0.1321 | +0.1043 |
+| hole | 155 | +0.1161 | +0.0983 |
+| missing_cable | 225 | +0.1067 | +0.1417 |
+| poke_insulation | 225 | +0.0667 | +0.0517 |
+| glue | 215 | +0.0651 | +0.0735 |
+| squeeze | 200 | +0.0650 | +0.0431 |
+
+Largest 10-way 1-shot regressions at `0.90/0.10`:
+
+| Class | Queries | Recall Delta | F1 Delta |
+|---|---:|---:|---:|
+| scratch | 215 | -0.0558 | -0.0326 |
+| scratch_neck | 185 | -0.0541 | -0.0245 |
+| misplaced | 190 | -0.0316 | -0.0086 |
+| cable_swap | 225 | -0.0311 | +0.0128 |
+| color | 160 | -0.0187 | -0.0149 |
+| cut_lead | 195 | -0.0154 | +0.0397 |
+| scratch_head | 200 | -0.0150 | -0.0141 |
+
+Largest 10-way 5-shot recall gains at `0.80/0.20`:
+
+| Class | Queries | Recall Delta | F1 Delta |
+|---|---:|---:|---:|
+| fabric_border | 310 | +0.1839 | +0.1293 |
+| squeeze | 270 | +0.0926 | +0.0441 |
+| squeezed_teeth | 295 | +0.0847 | +0.0618 |
+| split_teeth | 285 | +0.0842 | +0.0600 |
+| faulty_imprint | 310 | +0.0645 | +0.0343 |
+| thread_top | 280 | +0.0536 | +0.0336 |
+| hole | 240 | +0.0500 | +0.0476 |
+| missing_cable | 220 | +0.0500 | +0.0292 |
+| scratch_head | 260 | +0.0500 | +0.0267 |
+| thread | 315 | +0.0476 | +0.0129 |
+
+Largest 10-way 5-shot regressions at `0.80/0.20`:
+
+| Class | Queries | Recall Delta | F1 Delta |
+|---|---:|---:|---:|
+| scratch_neck | 265 | -0.0604 | -0.0287 |
+| color | 280 | -0.0393 | -0.0242 |
+| manipulated_front | 265 | -0.0377 | -0.0114 |
+| bent | 285 | -0.0316 | +0.0234 |
+| crack | 360 | -0.0139 | +0.0053 |
+| fabric_interior | 295 | -0.0102 | +0.0341 |
+| glue_strip | 260 | -0.0038 | -0.0069 |
+
+Interpretation:
+
+1. New-best fixed weights improve pseudo concat by `+3.15` points in 10-way 1-shot and `+2.34` points in 10-way 5-shot under query-pooled evaluation.
+2. The 10-way 1-shot gains are broad and include wire/cable/insulation labels, localized shape defects, and high-confidence print/squeeze labels.
+3. The 10-way 5-shot pattern remains consistent with Section 7.6: region-context strongly improves `fabric_border`, tooth defects, thread-top, hole, and missing-cable labels.
+4. Lowering the region weight from `0.25` to `0.20` did not remove the main 10-way 5-shot regressions; `scratch_neck`, `color`, and `manipulated_front` still degrade, and `scratch_neck` becomes slightly worse.
+5. This argues against only tuning one global fixed weight. The next implementation should add score normalization and/or confidence-based adaptive weighting so noisy region scores can be reduced on ambiguous scratch/color/global-appearance episodes while kept for localized structural defects.
+
 ## 8. Conclusions
 
 1. DINOv2 whole-image prototype is already a strong baseline, reaching `82.10%` accuracy in 5-way 1-shot.
@@ -402,6 +477,7 @@ Interpretation:
 9. Score-level region-context with `whole_weight=0.75` improves over pseudo concat fusion in 5-way 3-shot and both 10-way settings, but should keep region scores auxiliary until localization quality improves.
 10. Per-class confusion analysis shows that region-context mainly improves localized structural classes, while appearance/global classes and scratch-like fine-grained classes need score calibration or adaptive weights.
 11. Fine 10-way weight scanning moves the best fixed weights toward whole-heavy fusion (`0.90/0.10` for 1-shot and `0.80/0.20` for 5-shot), confirming that the current pseudo region signal should be a small correction rather than a dominant branch.
+12. New-best-weight confusion confirms the gains but preserves scratch/color/manipulated-front regressions, so the next classifier change should be score normalization or confidence-adaptive weighting rather than another single fixed weight.
 
 ## 9. Paper-Writing Takeaway
 

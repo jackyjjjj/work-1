@@ -60,7 +60,7 @@ def main() -> None:
     )
 
     results = []
-    for weight_idx, whole_weight in enumerate(whole_weights):
+    for whole_weight in whole_weights:
         region_weight = 1.0 - whole_weight
         for setting_idx, (n_way, k_shot) in enumerate(settings):
             print(
@@ -68,6 +68,7 @@ def main() -> None:
                 f"{n_way}-way {k_shot}-shot ...",
                 flush=True,
             )
+            # Keep episode samples paired across weights so weight sweeps are comparable.
             metrics = _run_setting(
                 records=records,
                 whole_extractor=whole_extractor,
@@ -76,7 +77,7 @@ def main() -> None:
                 k_shot=k_shot,
                 q_queries=args.q_queries,
                 episodes=args.episodes,
-                seed=args.seed + weight_idx * 1_000_000 + setting_idx * 100_000,
+                seed=args.seed + setting_idx * 100_000,
                 whole_weight=whole_weight,
                 region_weight=region_weight,
             )

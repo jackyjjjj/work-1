@@ -1,6 +1,17 @@
 # Handoff Summary
 
 
+## Latest Update - 2026-05-05 22:29 +08:00
+
+Use this section as the current state; older sections below are historical context.
+
+- New-best-weight confusion was run: 10-way 1-shot at `0.90/0.10`, 10-way 5-shot at `0.80/0.20`.
+- Query-pooled results: 10-way 1-shot region-context `0.7342` Acc / `0.7120` Macro-F1 vs pseudo concat `0.7027` / `0.6836`; 10-way 5-shot region-context `0.7506` / `0.7393` vs pseudo concat `0.7272` / `0.7165`.
+- Main 10-way 5-shot regressions remain `scratch_neck`, `color`, and `manipulated_front`, even after reducing region weight to `0.20`.
+- Important code fix: `scripts/run_region_context_grid.py` now keeps episode seeds paired across weights by removing `weight_idx` from the seed offset. Earlier fine sweep is useful as screening, but should be rerun with the patched script for strict fixed-weight selection.
+- Immediate next step: rerun paired fine sweep, then implement score normalization / confidence-based adaptive weighting if the fixed-weight result still leaves scratch/color/manipulated-front regressions.
+
+
 ## Latest Update - 2026-05-05 22:17 +08:00
 
 Use this section as the current state; older sections below are historical context.

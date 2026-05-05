@@ -914,3 +914,53 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 用新最佳权重重跑 per-class confusion：10-way 1-shot 使用 `whole_weight=0.90`，10-way 5-shot 使用 `whole_weight=0.80`。
 - 对比新旧 confusion，确认 `scratch_neck`、`color`、`manipulated_front` 等退化类别是否随 region 权重降低而改善。
 - 如果新最佳权重仍存在类别级退化，再实现 confidence-based adaptive weighting 或 score normalization。
+
+## 2026-05-05 22:29 +08:00
+
+### 修改目的
+
+记录新最佳固定权重下的 10-way confusion 结果，并修正 `scripts/run_region_context_grid.py` 的权重扫描 episode seed 逻辑，使不同权重在同一批 episodes 上比较。
+
+### 涉及文件
+
+- `scripts/run_region_context_grid.py`
+- `scripts/check_region_context_prototype.py`
+- `experiments/dinov2_baselines.md`
+- `docs/change_log.md`
+- `handoff.md`
+
+### 主要改动
+
+- `scripts/run_region_context_grid.py`：移除 `weight_idx` 对 seed 的影响，确保同一个 setting 下不同 whole weights 使用完全相同的 episode seeds，便于 paired weight sweep。
+- `scripts/check_region_context_prototype.py`：新增轻量自检，记录 `sample_episode` 的 seed 调用序列，验证两组权重的 episodes 是配对的。
+- 文档记录 `10-way 1-shot @ 0.90/0.10` 和 `10-way 5-shot @ 0.80/0.20` 的 confusion 结果。
+- 在实验文档中标注：上一轮 fine weight sweep 是有用筛查结果，但原脚本跨权重使用了不同 seeds，严格的固定权重结论应使用修复后的 paired sweep 复跑确认。
+
+### 记录的实验结果
+
+| Setting | Whole/Region W | Region Acc | Region Macro-F1 | Pseudo Concat Acc | Pseudo Concat Macro-F1 | Delta Acc | Delta F1 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 10-way 1-shot | 0.90 / 0.10 | 0.7342 | 0.7120 | 0.7027 | 0.6836 | +0.0315 | +0.0284 |
+| 10-way 5-shot | 0.80 / 0.20 | 0.7506 | 0.7393 | 0.7272 | 0.7165 | +0.0234 | +0.0228 |
+
+### 结论
+
+- 新最佳权重下 query-pooled evaluation 仍明显优于 pseudo concat fusion。
+- 10-way 1-shot 的收益更广，主要来自 wire/cable/insulation、localized shape 和 print/squeeze 等类别。
+- 10-way 5-shot 的收益模式与旧 `0.75/0.25` confusion 基本一致，仍主要改善 `fabric_border`、tooth defects、`thread_top`、`hole`、`missing_cable` 等局部结构类别。
+- 降低 region weight 到 `0.20` 没有消除 `scratch_neck`、`color`、`manipulated_front` 的退化，说明单个全局固定权重不足以处理类别/episode 差异。
+- 下一步应使用修复后的 paired sweep 复核最佳固定权重，然后实现 score normalization 或 confidence-based adaptive weighting。
+
+### 验证命令
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_region_context_prototype.py
+```
+
+结果：通过，输出 `region-context-prototype-check-ok`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/run_region_context_grid.py scripts/check_region_context_prototype.py
+```
+
+结果：通过，无语法错误。

@@ -15,7 +15,7 @@ from lg_fdc.data.episodes import EpisodeConfig, sample_episode
 from lg_fdc.data.manifest import load_manifest
 from lg_fdc.features.cached import CachedFeatureExtractor
 from lg_fdc.pipelines.region_context import RegionContextPrototypeClassifier, run_region_context_episode
-from run_region_context_grid import main as grid_main
+import run_region_context_grid as grid_module
 
 
 def test_region_context_classifier() -> None:
@@ -93,13 +93,59 @@ def test_region_context_episode_and_grid() -> None:
             str(output_md),
         ]
         try:
-            grid_main()
+            grid_module.main()
         finally:
             sys.argv = argv
 
         summary = json.loads(output_json.read_text(encoding="utf-8"))
         assert summary["results"][0]["metrics"]["accuracy"]["mean"] == 1.0
         assert "Region-Context Prototype Results" in output_md.read_text(encoding="utf-8")
+
+        paired_json = tmp / "paired_grid.json"
+        paired_md = tmp / "paired_grid.md"
+        recorded_seeds: list[int] = []
+        original_sample_episode = grid_module.sample_episode
+
+        def recording_sample_episode(records_arg, config):
+            recorded_seeds.append(config.seed)
+            return original_sample_episode(records_arg, config)
+
+        grid_module.sample_episode = recording_sample_episode
+        sys.argv = [
+            "run_region_context_grid.py",
+            "--manifest",
+            str(manifest),
+            "--split",
+            "train",
+            "--grid",
+            "2:1",
+            "--q-queries",
+            "1",
+            "--episodes",
+            "2",
+            "--seed",
+            "7",
+            "--whole-feature-file",
+            str(whole_cache),
+            "--region-feature-file",
+            str(region_cache),
+            "--whole-feature-dim",
+            "2",
+            "--region-feature-dim",
+            "2",
+            "--whole-weights",
+            "0.0,1.0",
+            "--output-json",
+            str(paired_json),
+            "--output-md",
+            str(paired_md),
+        ]
+        try:
+            grid_module.main()
+        finally:
+            grid_module.sample_episode = original_sample_episode
+            sys.argv = argv
+        assert recorded_seeds == [7, 8, 7, 8]
 
 
 def write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) -> None:
