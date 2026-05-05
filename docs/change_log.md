@@ -709,3 +709,47 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 在已有 concat 结果基础上实现更正式的 region-context prototype，而不是只做特征拼接。
 - 如时间允许，补充 pseudo fusion 与 whole-image / GT fusion 的 delta 表，便于论文分析。
 
+## 2026-05-05 12:00 +08:00
+
+### 修改目的
+
+新增 score-level region-context prototype baseline，作为比简单特征 concat 更正式的区域-上下文建模起点；同时补充 pseudo fusion 相对 pseudo ROI、whole-image 和 GT fusion 的 delta 分析表。
+
+### 涉及文件
+
+- `src/lg_fdc/pipelines/region_context.py`
+- `scripts/run_region_context_grid.py`
+- `scripts/check_region_context_prototype.py`
+- `README.md`
+- `experiments/dinov2_baselines.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `RegionContextPrototypeClassifier`，分别为 whole-image 特征和 region 特征建立 prototype，并在分类时按权重融合两个 cosine score。
+- 新增 `run_region_context_episode()`，复用现有 episode sampler、cached feature extractor 和 metrics。
+- 新增 `scripts/run_region_context_grid.py`，支持标准 few-shot grid 和 `--whole-weights` 权重扫描；region 权重自动设为 `1 - whole_weight`。
+- 新增 `scripts/check_region_context_prototype.py`，用合成 cached features 验证 classifier、episode pipeline 和 CLI grid 输出。
+- README 增加 region-context prototype 服务器运行命令。
+- `experiments/dinov2_baselines.md` 增加 pseudo fusion delta 表，便于分析上下文补偿效果和 GT fusion 差距。
+
+### 验证命令和结果
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_region_context_prototype.py
+```
+
+结果：通过，输出 `region-context-prototype-check-ok`。
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile src/lg_fdc/pipelines/region_context.py scripts/run_region_context_grid.py scripts/check_region_context_prototype.py
+```
+
+结果：通过，无语法错误。
+
+### 后续待办
+
+- 在服务器上运行 `scripts/run_region_context_grid.py`，比较 score-level region-context 与 pseudo concat fusion。
+- 如果 region-context 优于 concat，可进一步做 per-class confusion 和权重选择分析。
+- 如果 region-context 仍低于 concat，优先继续改 localization 或引入可学习/校准过的 score fusion。
+

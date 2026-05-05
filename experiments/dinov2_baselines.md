@@ -237,6 +237,19 @@ Interpretation:
 | 10-way 1-shot | Alpha 0.5 | +4.42 | +4.64 |
 | 10-way 5-shot | Concat | +1.74 | +1.55 |
 
+
+### 7.4 Pseudo Fusion Recovery
+
+| Setting | Fusion vs Pseudo ROI Acc | Fusion vs Pseudo ROI F1 | Fusion vs Whole Acc | Fusion vs Whole F1 | Fusion vs GT Fusion Acc | Fusion vs GT Fusion F1 |
+|---|---:|---:|---:|---:|---:|---:|
+| 5-way 1-shot | +16.70 | +18.45 | -1.60 | -1.90 | -3.12 | -3.42 |
+| 5-way 3-shot | +14.72 | +16.25 | -1.46 | -1.51 | -3.22 | -3.33 |
+| 5-way 5-shot | +17.88 | +19.97 | -1.04 | -1.09 | -3.86 | -4.12 |
+| 10-way 1-shot | +18.46 | +20.08 | -4.18 | -4.67 | -6.38 | -7.06 |
+| 10-way 5-shot | +21.98 | +24.30 | -3.78 | -4.01 | -8.50 | -9.43 |
+
+Pseudo-bbox fusion recovers most ROI-only loss and nearly matches whole-image performance in 5-way settings. The remaining gap to GT fusion grows in 10-way settings, which suggests that better localization is still important when class confusion is harder.
+
 ## 8. Conclusions
 
 1. DINOv2 whole-image prototype is already a strong baseline, reaching `82.10%` accuracy in 5-way 1-shot.

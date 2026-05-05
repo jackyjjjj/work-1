@@ -380,3 +380,26 @@ python scripts/run_fewshot_grid.py \
   --output-json outputs/results/dinov2_pseudo_fusion_concat_grid.json \
   --output-md outputs/results/dinov2_pseudo_fusion_concat_grid.md
 ```
+
+## Region-Context Prototype
+
+Concat fusion combines whole-image and region features before prototype scoring. A more explicit region-context baseline combines the whole-image and pseudo-region prototype scores at prediction time:
+
+```bash
+python scripts/run_region_context_grid.py \
+  --manifest data/manifests/mvtec_fs_pseudo_bbox_train.csv \
+  --split train \
+  --grid 5:1,5:3,5:5,10:1,10:5 \
+  --q-queries 5 \
+  --episodes 200 \
+  --whole-feature-file outputs/features/dinov2/mvtec_fs_train.jsonl \
+  --region-feature-file outputs/features/dinov2_pseudo_bbox/mvtec_fs_train.jsonl \
+  --whole-feature-dim 384 \
+  --region-feature-dim 384 \
+  --whole-weights 0.25,0.50,0.75 \
+  --output-json outputs/results/dinov2_pseudo_region_context_grid.json \
+  --output-md outputs/results/dinov2_pseudo_region_context_grid.md
+```
+
+`--whole-weights` controls the score-level whole-image contribution; the region score weight is `1 - whole_weight`.
+
