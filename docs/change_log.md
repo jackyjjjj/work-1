@@ -641,3 +641,34 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 根据 sweep 最佳参数重建 `data/manifests/mvtec_fs_pseudo_bbox_train.csv`，再提取 pseudo-bbox ROI 特征。
 - 跑 pseudo-bbox + whole-image concat fusion，确认上下文能否弥补 pseudo ROI 的定位误差。
 
+## 2026-05-05 11:00 +08:00
+
+### 修改目的
+
+记录服务器端 pseudo-bbox IoU sweep 结果，并据此确认当前 `dinov2_patch_contrast` pseudo localization 是 pseudo-bbox ROI baseline 性能下降的主要瓶颈。
+
+### 涉及文件
+
+- `experiments/dinov2_baselines.md`
+- `docs/change_log.md`
+
+### 主要记录
+
+- sweep 使用 GT manifest `data/manifests/mvtec_fs.csv` 和 heatmap `outputs/heatmaps/dinov2_patch_contrast_train.jsonl`。
+- 评估 split 为 `train`，有效图像数为 `886`。
+- 最优参数为 `percentile=0.90`、`min_area_ratio=0.0005`、`component=largest`。
+- 最优 mean IoU 为 `0.1863`，median IoU 为 `0.0765`，Recall@IoU 0.50 为 `0.1388`。
+- 最优设置的 mean Pseudo/GT area ratio 为 `11.3234`，说明 pseudo box 往往明显大于 GT bbox。
+
+### 结论
+
+- 当前 `patch-contrast` heatmap 生成的 pseudo-bbox 定位质量较弱，足以解释 pseudo-bbox ROI few-shot 结果明显低于 whole-image、GT bbox/ROI 和 GT fusion。
+- `largest` 组件策略明显比 `max-score` 更稳定；`max-score` 在 0.85/0.90 percentile 下容易选到偏离 GT 的高分小岛。
+- 下一步应先跑 pseudo-bbox + whole-image concat fusion，检查全局上下文是否能补偿 pseudo ROI 定位误差；同时考虑 nearest-memory / PatchCore / AnomalyDINO 等更强 localizer。
+
+### 后续待办
+
+- 用最佳 sweep manifest 或等价参数重建 `data/manifests/mvtec_fs_pseudo_bbox_train.csv`。
+- 提取最佳参数下的 pseudo-bbox ROI 特征，必要时复跑 pseudo-bbox ROI grid。
+- 将 whole-image 特征与 pseudo-bbox ROI 特征 concat，运行标准 few-shot grid。
+

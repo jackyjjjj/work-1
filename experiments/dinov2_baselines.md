@@ -146,9 +146,50 @@ Localizer: `dinov2_patch_contrast` heatmap -> pseudo bbox
 
 Observation: this starter pseudo-bbox ROI baseline is much lower than whole-image, GT bbox/ROI, and fusion. The result suggests that the first `patch-contrast` localizer is not accurate enough for ROI-only classification, and that pseudo-localization quality should be diagnosed before treating pseudo-bbox ROI as a final method.
 
-## 6. Delta Analysis
 
-### 6.1 BBox/ROI vs Whole-Image
+## 6. Pseudo-BBox IoU Sweep
+
+This sweep evaluates the first `dinov2_patch_contrast` heatmap localizer before rerunning expensive ROI feature extraction.
+
+- GT manifest: `data/manifests/mvtec_fs.csv`
+- Heatmap file: `outputs/heatmaps/dinov2_patch_contrast_train.jsonl`
+- Split: `train`
+- Images: `886`
+- Ranking: `mean_iou_then_recall`
+
+| Rank | Percentile | Min Area Ratio | Component | Mean IoU | Median IoU | R@0.25 | R@0.50 | Mean Area Ratio |
+|---:|---:|---:|---|---:|---:|---:|---:|---:|
+| 1 | 0.90 | 0.0005 | largest | 0.1863 | 0.0765 | 0.2788 | 0.1388 | 11.3234 |
+| 2 | 0.90 | 0.0010 | largest | 0.1863 | 0.0765 | 0.2788 | 0.1388 | 11.3234 |
+| 3 | 0.90 | 0.0050 | largest | 0.1862 | 0.0765 | 0.2788 | 0.1388 | 11.3232 |
+| 4 | 0.90 | 0.0050 | max-score | 0.1861 | 0.0613 | 0.2856 | 0.1467 | 10.1355 |
+| 5 | 0.85 | 0.0005 | largest | 0.1822 | 0.0681 | 0.2709 | 0.1309 | 16.7627 |
+| 9 | 0.95 | 0.0050 | max-score | 0.1673 | 0.0352 | 0.2585 | 0.1366 | 2.0552 |
+| 13 | 0.95 | 0.0005 | max-score | 0.0369 | 0.0000 | 0.0609 | 0.0305 | 0.8270 |
+| 15 | 0.90 | 0.0005 | max-score | 0.0216 | 0.0000 | 0.0339 | 0.0158 | 4.8636 |
+| 17 | 0.85 | 0.0005 | max-score | 0.0160 | 0.0000 | 0.0181 | 0.0113 | 7.9257 |
+
+Best setting:
+
+- Percentile: `0.90`
+- Min area ratio: `0.0005`
+- Component: `largest`
+- Mean IoU: `0.1863`
+- Median IoU: `0.0765`
+- Recall@IoU 0.50: `0.1388`
+- Pseudo manifest: `outputs/manifests/pseudo_bbox_sweep/pseudo_bbox_p0p9_area0p0005_largest.csv`
+
+Interpretation:
+
+1. Mean IoU around `0.186` and median IoU around `0.077` confirm that the first `patch-contrast` pseudo-bbox localizer is weak.
+2. Recall@IoU 0.50 is only `13.88%`, so ROI-only pseudo-bbox classification is expected to underperform.
+3. Mean pseudo/GT area ratio is very large (`11.32`) for the best setting, indicating that the largest connected component often produces boxes much larger than GT.
+4. `largest` is much more stable than `max-score` for percentile `0.85` and `0.90`; `max-score` often collapses to off-target high-score islands with near-zero median IoU.
+5. The next experiment should prioritize pseudo-bbox + whole-image fusion and stronger localization, rather than changing the prototype classifier.
+
+## 7. Delta Analysis
+
+### 7.1 BBox/ROI vs Whole-Image
 
 | Setting | Delta Accuracy | Delta Macro-F1 | Observation |
 |---|---:|---:|---|
@@ -158,7 +199,7 @@ Observation: this starter pseudo-bbox ROI baseline is much lower than whole-imag
 | 10-way 1-shot | -1.91 | -2.03 | ROI still suffers in 1-shot. |
 | 10-way 5-shot | +2.98 | +3.87 | ROI helps more when class number is larger and support is sufficient. |
 
-### 6.2 Best Fusion vs Whole-Image
+### 7.2 Best Fusion vs Whole-Image
 
 | Setting | Best Fusion | Delta Accuracy | Delta Macro-F1 |
 |---|---:|---:|---:|
@@ -168,7 +209,7 @@ Observation: this starter pseudo-bbox ROI baseline is much lower than whole-imag
 | 10-way 1-shot | Alpha 0.5 | +2.51 | +2.61 |
 | 10-way 5-shot | Concat | +4.72 | +5.42 |
 
-### 6.3 Best Fusion vs BBox/ROI
+### 7.3 Best Fusion vs BBox/ROI
 
 | Setting | Best Fusion | Delta Accuracy | Delta Macro-F1 |
 |---|---:|---:|---:|
@@ -178,7 +219,7 @@ Observation: this starter pseudo-bbox ROI baseline is much lower than whole-imag
 | 10-way 1-shot | Alpha 0.5 | +4.42 | +4.64 |
 | 10-way 5-shot | Concat | +1.74 | +1.55 |
 
-## 7. Conclusions
+## 8. Conclusions
 
 1. DINOv2 whole-image prototype is already a strong baseline, reaching `82.10%` accuracy in 5-way 1-shot.
 2. BBox/ROI features are weaker in 1-shot settings but become stronger in 5-shot settings, especially in 10-way 5-shot.
@@ -188,7 +229,7 @@ Observation: this starter pseudo-bbox ROI baseline is much lower than whole-imag
 6. Alpha 0.25 is generally more stable than alpha 0.75, suggesting that defect-region features are important but need global context as a complement.
 7. The first automatic `patch-contrast` pseudo-bbox ROI result is much weaker than all DINOv2 baselines, so the current bottleneck is localization quality rather than the prototype classifier itself.
 
-## 8. Paper-Writing Takeaway
+## 9. Paper-Writing Takeaway
 
 A concise paper motivation can be written as:
 
@@ -198,7 +239,7 @@ Chinese version:
 
 > 整图 DINOv2 原型保留了产品与上下文信息，但容易受到背景干扰；BBox 区域原型聚焦局部缺陷证据，但在低样本设置下容易丢失有用上下文。简单的区域-全局融合在多个 few-shot 设置下稳定提升性能，说明小样本工业缺陷分类需要同时建模缺陷区域与产品级上下文。
 
-## 9. Next Step
+## 10. Next Step
 
 The next stage should move from ground-truth LabelMe bbox to automatic localization:
 
