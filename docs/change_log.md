@@ -1041,3 +1041,31 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 说明旧流程是在 native low-resolution patch grid 上 threshold / connected components 后再缩放 bbox，新流程可选 `--upsample-heatmap-to-image` 先双线性 resize 到原图大小。
 - 补充 native-grid 与 upsampled IoU sweep 的服务器对比命令和下一步决策逻辑。
 
+## 2026-05-06 23:59 +08:00
+
+### 修改目的
+
+排查 `scripts/sweep_pseudo_bbox_iou.py --upsample-heatmap-to-image` 在服务器上长时间无输出的问题，并优化上采样 sweep 的运行反馈与计算路径。
+
+### 涉及文件
+
+- `scripts/build_pseudo_bbox_manifest.py`
+- `scripts/sweep_pseudo_bbox_iou.py`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 定位原因：旧实现会在每个 sweep setting、每张图上用纯 Python 将低分辨率 heatmap 双线性展开到原图大小，再做排序、阈值、连通域；大图和多参数组合下非常慢，且主循环没有进度输出，看起来像“卡死”。
+- `scripts/build_pseudo_bbox_manifest.py`：为上采样路径增加 NumPy/OpenCV 快路径，使用 `cv2.resize`、`numpy.partition` 和 `cv2.connectedComponentsWithStats` 完成全分辨率阈值与连通域统计。
+- 保留无 OpenCV 时的纯 Python fallback，但避免物化完整二维上采样 heatmap，并用 `bytearray` 记录 visited 状态，降低内存压力。
+- `scripts/sweep_pseudo_bbox_iou.py`：每个参数组合开始和结束时输出进度、处理模式、已评估图片数、mean IoU 和 Recall@IoU 0.50，避免长时间无反馈。
+
+### 验证命令
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox.py
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox_iou_sweep.py
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/build_pseudo_bbox_manifest.py scripts/sweep_pseudo_bbox_iou.py
+```
+
+结果：通过。

@@ -78,20 +78,36 @@ def main() -> None:
     min_area_ratios = parse_float_list(args.min_area_ratios, "min-area-ratios")
     components = parse_components(args.components)
 
+    print(f"loading manifest: {args.gt_manifest}", flush=True)
     rows, fieldnames = load_manifest_rows(Path(args.gt_manifest))
     rows = filter_rows_by_split(rows, args.split)
     if not rows:
         raise SystemExit(f"No manifest rows found for split={args.split!r} in {args.gt_manifest}")
+    print(f"loaded manifest rows for split={args.split!r}: {len(rows)}", flush=True)
 
+    print(f"loading heatmaps: {args.heatmap_file}", flush=True)
     heatmaps = load_heatmap_cache(Path(args.heatmap_file))
+    print(f"loaded heatmaps: {len(heatmaps)}", flush=True)
     write_manifests_dir = Path(args.write_manifests_dir) if args.write_manifests_dir else None
     if write_manifests_dir:
         write_manifests_dir.mkdir(parents=True, exist_ok=True)
 
     results = []
+    total_settings = len(percentiles) * len(min_area_ratios) * len(components)
+    setting_idx = 0
+    heatmap_processing = "bilinear_to_image" if args.upsample_heatmap_to_image else "native_grid"
     for percentile in percentiles:
         for min_area_ratio in min_area_ratios:
             for component in components:
+                setting_idx += 1
+                print(
+                    f"[{setting_idx}/{total_settings}] "
+                    f"percentile={percentile:g} "
+                    f"min_area_ratio={min_area_ratio:g} "
+                    f"component={component} "
+                    f"processing={heatmap_processing}",
+                    flush=True,
+                )
                 result, pseudo_rows = evaluate_setting(
                     rows=rows,
                     fieldnames=fieldnames,
@@ -109,6 +125,12 @@ def main() -> None:
                     write_pseudo_manifest(manifest_path, fieldnames, pseudo_rows)
                     result["pseudo_manifest"] = str(manifest_path)
                 results.append(result)
+                print(
+                    f"  done: evaluated={result['counts']['evaluated_rows']} "
+                    f"mean_iou={format_number(result['iou']['mean'])} "
+                    f"recall@0.50={format_number(result['recall_at_iou']['0.50'])}",
+                    flush=True,
+                )
 
     ranked = rank_results(results)
     summary = {

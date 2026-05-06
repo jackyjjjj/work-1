@@ -4,7 +4,6 @@ import argparse
 import csv
 import json
 import math
-from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -180,21 +179,48 @@ def heatmap_to_bbox(
     if image_height <= 0:
         image_height = height
 
-    heatmap_processing = "bilinear_to_image" if upsample_to_image else "native_grid"
-    if upsample_to_image and (width != image_width or height != image_height):
-        values = resize_heatmap_bilinear(values, target_width=image_width, target_height=image_height)
-        height = len(values)
-        width = len(values[0]) if height else 0
-
-    threshold = percentile_threshold(values, percentile)
-    mask = [[score >= threshold for score in row] for row in values]
     if min_area_ratio < 0.0:
         raise ValueError("min_area_ratio must be non-negative")
-    min_area = max(1, int(round(width * height * min_area_ratio)))
-    components = connected_components(mask, values)
+
+    heatmap_processing = "bilinear_to_image" if upsample_to_image else "native_grid"
+    if upsample_to_image and (width != image_width or height != image_height):
+        fast_result = heatmap_to_bbox_upsampled_fast(
+            values=values,
+            image_width=image_width,
+            image_height=image_height,
+            percentile=percentile,
+            min_area_ratio=min_area_ratio,
+            component=component,
+        )
+        if fast_result is not None:
+            return fast_result
+
+        threshold = percentile_threshold_upsampled(values, percentile, image_width, image_height)
+        components = connected_components_upsampled(
+            values=values,
+            threshold=threshold,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        component_area_scale = image_width * image_height
+        output_scale_x = 1.0
+        output_scale_y = 1.0
+    else:
+        threshold = percentile_threshold(values, percentile)
+        mask = [[score >= threshold for score in row] for row in values]
+        components = connected_components(mask, values)
+        component_area_scale = width * height
+        output_scale_x = image_width / width
+        output_scale_y = image_height / height
+
+    min_area = max(1, int(round(component_area_scale * min_area_ratio)))
     components = [item for item in components if item["area"] >= min_area]
     if not components:
-        components = [peak_component(values)]
+        components = [
+            peak_component_upsampled(values, image_width, image_height)
+            if upsample_to_image
+            else peak_component(values)
+        ]
 
     if component == "largest":
         chosen = max(components, key=lambda item: (item["area"], item["score"]))
@@ -204,16 +230,125 @@ def heatmap_to_bbox(
         raise ValueError(f"Unsupported component strategy: {component}")
 
     x1, y1, x2, y2 = chosen["bbox"]
-    scale_x = image_width / width
-    scale_y = image_height / height
     # x2/y2 是 inclusive heatmap index，转换到图像坐标时扩展到下一格边界。
     image_bbox = (
-        x1 * scale_x,
-        y1 * scale_y,
-        min(image_width, (x2 + 1) * scale_x),
-        min(image_height, (y2 + 1) * scale_y),
+        x1 * output_scale_x,
+        y1 * output_scale_y,
+        min(image_width, (x2 + 1) * output_scale_x),
+        min(image_height, (y2 + 1) * output_scale_y),
     )
     return {"bbox": image_bbox, "score": chosen["score"], "area": chosen["area"], "heatmap_processing": heatmap_processing}
+
+
+def heatmap_to_bbox_upsampled_fast(
+    values: list[list[float]],
+    image_width: int,
+    image_height: int,
+    percentile: float,
+    min_area_ratio: float,
+    component: str,
+) -> dict[str, Any] | None:
+    """Use NumPy/OpenCV for the image-sized upsample path when available."""
+
+    try:
+        import cv2  # type: ignore[import-not-found]
+        import numpy as np
+    except ImportError:
+        return None
+
+    array = np.asarray(values, dtype=np.float32)
+    if array.ndim != 2 or array.size == 0:
+        raise ValueError("Heatmap must be a non-empty 2D array")
+    resized = cv2.resize(array, (int(image_width), int(image_height)), interpolation=cv2.INTER_LINEAR)
+    flat = resized.reshape(-1)
+    threshold_idx = min(len(flat) - 1, max(0, int(math.ceil(percentile * (len(flat) - 1)))))
+    threshold = float(np.partition(flat, threshold_idx)[threshold_idx])
+    mask = (resized >= threshold).astype("uint8", copy=False)
+    min_area = max(1, int(round(image_width * image_height * min_area_ratio)))
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=4)
+    if num_labels <= 1:
+        return _peak_component_from_resized(resized, image_width, image_height)
+
+    sums = np.bincount(labels.reshape(-1), weights=resized.reshape(-1), minlength=num_labels)
+    components = []
+    for label_idx in range(1, num_labels):
+        area = int(stats[label_idx, cv2.CC_STAT_AREA])
+        if area < min_area:
+            continue
+        left = int(stats[label_idx, cv2.CC_STAT_LEFT])
+        top = int(stats[label_idx, cv2.CC_STAT_TOP])
+        width = int(stats[label_idx, cv2.CC_STAT_WIDTH])
+        height = int(stats[label_idx, cv2.CC_STAT_HEIGHT])
+        components.append(
+            {
+                "bbox": (left, top, left + width - 1, top + height - 1),
+                "area": area,
+                "score": float(sums[label_idx] / area),
+            }
+        )
+    if not components:
+        return _peak_component_from_resized(resized, image_width, image_height)
+
+    if component == "largest":
+        chosen = max(components, key=lambda item: (item["area"], item["score"]))
+    elif component == "max-score":
+        chosen = max(components, key=lambda item: (item["score"], item["area"]))
+    else:
+        raise ValueError(f"Unsupported component strategy: {component}")
+
+    x1, y1, x2, y2 = chosen["bbox"]
+    return {
+        "bbox": (float(x1), float(y1), min(image_width, float(x2 + 1)), min(image_height, float(y2 + 1))),
+        "score": chosen["score"],
+        "area": chosen["area"],
+        "heatmap_processing": "bilinear_to_image",
+    }
+
+
+def _peak_component_from_resized(resized: Any, image_width: int, image_height: int) -> dict[str, Any]:
+    flat_idx = int(resized.argmax())
+    y, x = divmod(flat_idx, image_width)
+    score = float(resized[y, x])
+    return {
+        "bbox": (float(x), float(y), min(image_width, float(x + 1)), min(image_height, float(y + 1))),
+        "score": score,
+        "area": 1,
+        "heatmap_processing": "bilinear_to_image",
+    }
+
+
+def upsampled_score_at(
+    values: list[list[float]],
+    target_x: int,
+    target_y: int,
+    target_width: int,
+    target_height: int,
+) -> float:
+    """Return the bilinear score at one image-grid pixel without materializing the full heatmap."""
+
+    source_height = len(values)
+    source_width = len(values[0]) if source_height else 0
+    if source_height == 0 or source_width == 0:
+        raise ValueError("Heatmap must not be empty")
+    if target_width <= 0 or target_height <= 0:
+        raise ValueError("target_width and target_height must be positive")
+    if source_width == target_width and source_height == target_height:
+        return float(values[target_y][target_x])
+
+    scale_x = source_width / target_width
+    scale_y = source_height / target_height
+    source_y = (target_y + 0.5) * scale_y - 0.5
+    y0 = max(0, min(source_height - 1, math.floor(source_y)))
+    y1 = max(0, min(source_height - 1, y0 + 1))
+    wy = 0.0 if source_y < 0.0 else source_y - y0
+    source_x = (target_x + 0.5) * scale_x - 0.5
+    x0 = max(0, min(source_width - 1, math.floor(source_x)))
+    x1 = max(0, min(source_width - 1, x0 + 1))
+    wx = 0.0 if source_x < 0.0 else source_x - x0
+    top = values[y0][x0] * (1.0 - wx) + values[y0][x1] * wx
+    bottom = values[y1][x0] * (1.0 - wx) + values[y1][x1] * wx
+    return float(top * (1.0 - wy) + bottom * wy)
 
 
 def resize_heatmap_bilinear(values: list[list[float]], target_width: int, target_height: int) -> list[list[float]]:
@@ -260,6 +395,20 @@ def percentile_threshold(values: list[list[float]], percentile: float) -> float:
     return flat[index]
 
 
+def percentile_threshold_upsampled(
+    values: list[list[float]], percentile: float, image_width: int, image_height: int
+) -> float:
+    """Exact percentile threshold for the upsampled grid without storing a 2D resized heatmap."""
+
+    flat = sorted(
+        upsampled_score_at(values, x, y, image_width, image_height)
+        for y in range(image_height)
+        for x in range(image_width)
+    )
+    index = min(len(flat) - 1, max(0, math.ceil(percentile * (len(flat) - 1))))
+    return flat[index]
+
+
 def connected_components(mask: list[list[bool]], values: list[list[float]]) -> list[dict[str, Any]]:
     height = len(mask)
     width = len(mask[0]) if height else 0
@@ -269,34 +418,99 @@ def connected_components(mask: list[list[bool]], values: list[list[float]]) -> l
         for x in range(width):
             if not mask[y][x] or visited[y][x]:
                 continue
-            components.append(_flood_fill(mask, values, visited, x, y))
+            components.append(_flood_fill_mask(mask, values, visited, x, y))
     return components
 
 
-def _flood_fill(
+def connected_components_upsampled(
+    values: list[list[float]],
+    threshold: float,
+    image_width: int,
+    image_height: int,
+) -> list[dict[str, Any]]:
+    """Run connected components on an upsampled grid without storing an image-sized heatmap."""
+
+    if image_width <= 0 or image_height <= 0:
+        raise ValueError("image_width and image_height must be positive")
+    visited = bytearray(image_width * image_height)
+    components = []
+    for y in range(image_height):
+        row_offset = y * image_width
+        for x in range(image_width):
+            index = row_offset + x
+            if visited[index]:
+                continue
+            score = upsampled_score_at(values, x, y, image_width, image_height)
+            if score < threshold:
+                visited[index] = 1
+                continue
+            components.append(_flood_fill_upsampled(values, visited, x, y, image_width, image_height, threshold, score))
+    return components
+
+
+def _flood_fill_mask(
     mask: list[list[bool]], values: list[list[float]], visited: list[list[bool]], start_x: int, start_y: int
 ) -> dict[str, Any]:
     height = len(mask)
     width = len(mask[0])
-    queue: deque[tuple[int, int]] = deque([(start_x, start_y)])
+    stack = [(start_x, start_y)]
     visited[start_y][start_x] = True
-    xs = []
-    ys = []
-    scores = []
-    while queue:
-        x, y = queue.popleft()
-        xs.append(x)
-        ys.append(y)
-        scores.append(values[y][x])
+    min_x = max_x = start_x
+    min_y = max_y = start_y
+    area = 0
+    score_sum = 0.0
+    while stack:
+        x, y = stack.pop()
+        area += 1
+        score_sum += values[y][x]
+        min_x = min(min_x, x)
+        max_x = max(max_x, x)
+        min_y = min(min_y, y)
+        max_y = max(max_y, y)
         for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
             if 0 <= nx < width and 0 <= ny < height and mask[ny][nx] and not visited[ny][nx]:
                 visited[ny][nx] = True
-                queue.append((nx, ny))
-    return {
-        "bbox": (min(xs), min(ys), max(xs), max(ys)),
-        "area": len(xs),
-        "score": sum(scores) / len(scores),
-    }
+                stack.append((nx, ny))
+    return {"bbox": (min_x, min_y, max_x, max_y), "area": area, "score": score_sum / area}
+
+
+def _flood_fill_upsampled(
+    values: list[list[float]],
+    visited: bytearray,
+    start_x: int,
+    start_y: int,
+    image_width: int,
+    image_height: int,
+    threshold: float,
+    start_score: float,
+) -> dict[str, Any]:
+    stack = [(start_x, start_y, start_score)]
+    visited[start_y * image_width + start_x] = 1
+    min_x = max_x = start_x
+    min_y = max_y = start_y
+    area = 0
+    score_sum = 0.0
+    while stack:
+        x, y, score = stack.pop()
+        area += 1
+        score_sum += score
+        min_x = min(min_x, x)
+        max_x = max(max_x, x)
+        min_y = min(min_y, y)
+        max_y = max(max_y, y)
+        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+            if not (0 <= nx < image_width and 0 <= ny < image_height):
+                continue
+            index = ny * image_width + nx
+            if visited[index]:
+                continue
+            next_score = upsampled_score_at(values, nx, ny, image_width, image_height)
+            if next_score < threshold:
+                visited[index] = 1
+                continue
+            visited[index] = 1
+            stack.append((nx, ny, next_score))
+    return {"bbox": (min_x, min_y, max_x, max_y), "area": area, "score": score_sum / area}
 
 
 def peak_component(values: list[list[float]]) -> dict[str, Any]:
@@ -305,6 +519,20 @@ def peak_component(values: list[list[float]]) -> dict[str, Any]:
     best_score = values[0][0]
     for y, row in enumerate(values):
         for x, score in enumerate(row):
+            if score > best_score:
+                best_x = x
+                best_y = y
+                best_score = score
+    return {"bbox": (best_x, best_y, best_x, best_y), "area": 1, "score": best_score}
+
+
+def peak_component_upsampled(values: list[list[float]], image_width: int, image_height: int) -> dict[str, Any]:
+    best_x = 0
+    best_y = 0
+    best_score = upsampled_score_at(values, 0, 0, image_width, image_height)
+    for y in range(image_height):
+        for x in range(image_width):
+            score = upsampled_score_at(values, x, y, image_width, image_height)
             if score > best_score:
                 best_x = x
                 best_y = y
