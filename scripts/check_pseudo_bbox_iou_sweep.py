@@ -78,6 +78,7 @@ def test_sweep_cli_outputs() -> None:
             "0.0",
             "--components",
             "max-score",
+            "--upsample-heatmap-to-image",
             "--output-json",
             str(out_json),
             "--output-md",
@@ -94,15 +95,20 @@ def test_sweep_cli_outputs() -> None:
 
         summary = json.loads(out_json.read_text(encoding="utf-8"))
         assert len(summary["results"]) == 2
+        assert summary["heatmap_processing"] == "bilinear_to_image"
         assert summary["best"]["percentile"] == 0.75
-        assert summary["best"]["iou"]["mean"] == 1.0
+        assert 0.8 < summary["best"]["iou"]["mean"] < 0.9
         assert summary["best"]["counts"]["evaluated_rows"] == 1
         assert Path(summary["best"]["pseudo_manifest"]).exists()
-        assert "Pseudo-BBox IoU Sweep" in out_md.read_text(encoding="utf-8")
+        assert "upsampled" in Path(summary["best"]["pseudo_manifest"]).name
+        md_text = out_md.read_text(encoding="utf-8")
+        assert "Pseudo-BBox IoU Sweep" in md_text
+        assert "bilinear_to_image" in md_text
         with out_csv.open("r", encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
         assert len(rows) == 2
         assert rows[0]["rank"] == "1"
+        assert rows[0]["heatmap_processing"] == "bilinear_to_image"
 
 
 def write_rows(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) -> None:

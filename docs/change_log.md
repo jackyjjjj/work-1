@@ -983,3 +983,42 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 - 标注 `scripts/run_region_context_grid.py` 已修复跨权重 episode seed 配对问题。
 - 明确最新 paired sweep 结论：10-way 1-shot 在 whole-only 下最佳，10-way 5-shot 仅在 `0.95/0.05` 下获得极小增益。
 - 给出未完成事项和下一步建议：先记录 paired sweep，再考虑 score normalization / confidence-adaptive weighting 或更强 localization。
+
+## 2026-05-06 20:37 +08:00
+
+### 修改目的
+
+为 pseudo-bbox 诊断新增“先将低分辨率 heatmap 双线性上采样到原图大小，再进行阈值化和连通域提 bbox”的测试路径，验证上采样是否能改善当前 DINOv2 patch heatmap 的 pseudo-bbox IoU。
+
+### 涉及文件
+
+- `scripts/build_pseudo_bbox_manifest.py`
+- `scripts/sweep_pseudo_bbox_iou.py`
+- `scripts/check_pseudo_bbox.py`
+- `scripts/check_pseudo_bbox_iou_sweep.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- `scripts/build_pseudo_bbox_manifest.py` 新增 `--upsample-heatmap-to-image`，在提取 pseudo bbox 前把 heatmap 双线性 resize 到 `image_width x image_height`。
+- 默认行为保持不变，仍在 native patch-grid heatmap 上 threshold / connected components，再映射 bbox 到原图坐标。
+- pseudo manifest 新增 `pseudo_bbox_heatmap_processing` 字段；上采样模式下 `bbox_source` 写为 `pseudo_heatmap_upsampled`。
+- `scripts/sweep_pseudo_bbox_iou.py` 同步新增 `--upsample-heatmap-to-image`，并在 JSON/Markdown/CSV 与生成 manifest 名称中记录 `bilinear_to_image` / `upsampled`。
+- 自检覆盖 bilinear resize、上采样 bbox 差异、CLI 输出字段和 sweep 上采样元数据。
+- README 增加上采样 IoU sweep 的服务器运行命令。
+
+### 验证命令
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox.py
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox_iou_sweep.py
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/build_pseudo_bbox_manifest.py scripts/sweep_pseudo_bbox_iou.py scripts/check_pseudo_bbox.py scripts/check_pseudo_bbox_iou_sweep.py
+```
+
+结果：通过。
+
+### 后续待办
+
+- 在服务器上用 `outputs/heatmaps/dinov2_patch_contrast_train.jsonl` 运行 native-grid 和 upsampled 两套 sweep，对比 mean IoU、Recall@IoU 0.50 和 mean area ratio。
+- 如果上采样只带来极小收益或进一步扩大 bbox，则继续优先尝试 stronger anomaly heatmap localizer。

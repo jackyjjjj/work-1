@@ -21,6 +21,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-area-ratio", type=float, default=0.001, help="Minimum selected component area ratio.")
     parser.add_argument("--component", choices=["largest", "max-score"], default="max-score")
     parser.add_argument(
+        "--upsample-heatmap-to-image",
+        action="store_true",
+        help="Bilinearly upsample heatmaps to original image size before thresholding and connected components.",
+    )
+    parser.add_argument(
         "--missing-policy",
         choices=["error", "clear", "keep"],
         default="error",
@@ -56,7 +61,13 @@ def main() -> None:
 
     replaced = 0
     with output.open("w", encoding="utf-8", newline="") as dst:
-        for field in ("bbox", "bbox_source", "pseudo_bbox_score", "pseudo_bbox_area"):
+        for field in (
+            "bbox",
+            "bbox_source",
+            "pseudo_bbox_score",
+            "pseudo_bbox_area",
+            "pseudo_bbox_heatmap_processing",
+        ):
             if field not in fieldnames:
                 fieldnames.append(field)
         writer = csv.DictWriter(dst, fieldnames=fieldnames)
@@ -73,11 +84,13 @@ def main() -> None:
                     percentile=args.percentile,
                     min_area_ratio=args.min_area_ratio,
                     component=args.component,
+                    upsample_to_image=args.upsample_heatmap_to_image,
                 )
                 row["bbox"] = format_bbox(pseudo["bbox"])
-                row["bbox_source"] = "pseudo_heatmap"
+                row["bbox_source"] = "pseudo_heatmap_upsampled" if args.upsample_heatmap_to_image else "pseudo_heatmap"
                 row["pseudo_bbox_score"] = f"{pseudo['score']:.6f}"
                 row["pseudo_bbox_area"] = str(pseudo["area"])
+                row["pseudo_bbox_heatmap_processing"] = pseudo["heatmap_processing"]
                 replaced += 1
             else:
                 if args.missing_policy == "clear":
@@ -85,6 +98,7 @@ def main() -> None:
                 row["bbox_source"] = f"missing_heatmap_{args.missing_policy}"
                 row["pseudo_bbox_score"] = ""
                 row["pseudo_bbox_area"] = ""
+                row["pseudo_bbox_heatmap_processing"] = ""
             writer.writerow(row)
 
     print(f"wrote pseudo-bbox manifest: {output}")
@@ -147,6 +161,7 @@ def heatmap_to_bbox(
     percentile: float,
     min_area_ratio: float,
     component: str,
+    upsample_to_image: bool = False,
 ) -> dict[str, Any]:
     """把二维 heatmap 转成图像坐标系下的 pseudo bbox。"""
 
@@ -158,10 +173,18 @@ def heatmap_to_bbox(
         raise ValueError("Heatmap rows must have the same width")
     if not 0.0 < percentile <= 1.0:
         raise ValueError("percentile must be in (0, 1]")
+    if upsample_to_image and (image_width <= 0 or image_height <= 0):
+        raise ValueError("image_width and image_height are required when upsampling heatmaps to image size")
     if image_width <= 0:
         image_width = width
     if image_height <= 0:
         image_height = height
+
+    heatmap_processing = "bilinear_to_image" if upsample_to_image else "native_grid"
+    if upsample_to_image and (width != image_width or height != image_height):
+        values = resize_heatmap_bilinear(values, target_width=image_width, target_height=image_height)
+        height = len(values)
+        width = len(values[0]) if height else 0
 
     threshold = percentile_threshold(values, percentile)
     mask = [[score >= threshold for score in row] for row in values]
@@ -190,7 +213,42 @@ def heatmap_to_bbox(
         min(image_width, (x2 + 1) * scale_x),
         min(image_height, (y2 + 1) * scale_y),
     )
-    return {"bbox": image_bbox, "score": chosen["score"], "area": chosen["area"]}
+    return {"bbox": image_bbox, "score": chosen["score"], "area": chosen["area"], "heatmap_processing": heatmap_processing}
+
+
+def resize_heatmap_bilinear(values: list[list[float]], target_width: int, target_height: int) -> list[list[float]]:
+    """Resize a heatmap with bilinear interpolation using pixel-center alignment."""
+
+    source_height = len(values)
+    source_width = len(values[0]) if source_height else 0
+    if source_height == 0 or source_width == 0:
+        raise ValueError("Heatmap must not be empty")
+    if target_width <= 0 or target_height <= 0:
+        raise ValueError("target_width and target_height must be positive")
+    if any(len(row) != source_width for row in values):
+        raise ValueError("Heatmap rows must have the same width")
+    if source_width == target_width and source_height == target_height:
+        return [[float(value) for value in row] for row in values]
+
+    resized: list[list[float]] = []
+    scale_x = source_width / target_width
+    scale_y = source_height / target_height
+    for target_y in range(target_height):
+        source_y = (target_y + 0.5) * scale_y - 0.5
+        y0 = max(0, min(source_height - 1, math.floor(source_y)))
+        y1 = max(0, min(source_height - 1, y0 + 1))
+        wy = 0.0 if source_y < 0.0 else source_y - y0
+        row: list[float] = []
+        for target_x in range(target_width):
+            source_x = (target_x + 0.5) * scale_x - 0.5
+            x0 = max(0, min(source_width - 1, math.floor(source_x)))
+            x1 = max(0, min(source_width - 1, x0 + 1))
+            wx = 0.0 if source_x < 0.0 else source_x - x0
+            top = values[y0][x0] * (1.0 - wx) + values[y0][x1] * wx
+            bottom = values[y1][x0] * (1.0 - wx) + values[y1][x1] * wx
+            row.append(float(top * (1.0 - wy) + bottom * wy))
+        resized.append(row)
+    return resized
 
 
 def percentile_threshold(values: list[list[float]], percentile: float) -> float:

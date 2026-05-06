@@ -357,6 +357,26 @@ python scripts/sweep_pseudo_bbox_iou.py \
 
 The sweep ranks settings by mean IoU, then Recall@IoU 0.50/0.25. Use the best generated pseudo manifest only as a staging artifact; copy or rebuild the chosen setting into `data/manifests/mvtec_fs_pseudo_bbox_train.csv` before extracting DINOv2 ROI features.
 
+To test whether low-resolution patch heatmaps benefit from bilinear upsampling before thresholding, add `--upsample-heatmap-to-image`:
+
+```bash
+mkdir -p outputs/diagnostics outputs/manifests/pseudo_bbox_sweep_upsampled
+python scripts/sweep_pseudo_bbox_iou.py \
+  --gt-manifest data/manifests/mvtec_fs.csv \
+  --heatmap-file outputs/heatmaps/dinov2_patch_contrast_train.jsonl \
+  --split train \
+  --percentiles 0.85,0.90,0.95 \
+  --min-area-ratios 0.0005,0.001,0.005 \
+  --components largest,max-score \
+  --upsample-heatmap-to-image \
+  --output-json outputs/diagnostics/pseudo_bbox_iou_sweep_train_upsampled.json \
+  --output-md outputs/diagnostics/pseudo_bbox_iou_sweep_train_upsampled.md \
+  --output-csv outputs/diagnostics/pseudo_bbox_iou_sweep_train_upsampled.csv \
+  --write-manifests-dir outputs/manifests/pseudo_bbox_sweep_upsampled
+```
+
+`--upsample-heatmap-to-image` keeps the JSONL heatmap cache unchanged, but resizes each heatmap to `image_width x image_height` with bilinear interpolation before percentile thresholding and connected-component selection. The default remains native-grid thresholding.
+
 If pseudo-bbox ROI is weak, test whether whole-image context recovers performance by fusing whole-image and pseudo-bbox features:
 
 ```bash

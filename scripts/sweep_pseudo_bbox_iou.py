@@ -52,6 +52,11 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated component strategies: largest,max-score.",
     )
     parser.add_argument(
+        "--upsample-heatmap-to-image",
+        action="store_true",
+        help="Bilinearly upsample heatmaps to original image size before thresholding and connected components.",
+    )
+    parser.add_argument(
         "--missing-policy",
         choices=["error", "skip"],
         default="error",
@@ -95,9 +100,12 @@ def main() -> None:
                     min_area_ratio=min_area_ratio,
                     component=component,
                     missing_policy=args.missing_policy,
+                    upsample_to_image=args.upsample_heatmap_to_image,
                 )
                 if write_manifests_dir:
-                    manifest_path = write_manifests_dir / setting_filename(percentile, min_area_ratio, component)
+                    manifest_path = write_manifests_dir / setting_filename(
+                        percentile, min_area_ratio, component, args.upsample_heatmap_to_image
+                    )
                     write_pseudo_manifest(manifest_path, fieldnames, pseudo_rows)
                     result["pseudo_manifest"] = str(manifest_path)
                 results.append(result)
@@ -111,6 +119,7 @@ def main() -> None:
         "min_area_ratios": min_area_ratios,
         "components": components,
         "missing_policy": args.missing_policy,
+        "heatmap_processing": "bilinear_to_image" if args.upsample_heatmap_to_image else "native_grid",
         "ranking_metric": "mean_iou_then_recall",
         "best": ranked[0] if ranked else None,
         "results": ranked,
@@ -180,6 +189,7 @@ def evaluate_setting(
     min_area_ratio: float,
     component: str,
     missing_policy: str,
+    upsample_to_image: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     if not 0.0 < percentile <= 1.0:
         raise ValueError("percentile values must be in (0, 1]")
@@ -219,9 +229,12 @@ def evaluate_setting(
             percentile=percentile,
             min_area_ratio=min_area_ratio,
             component=component,
+            upsample_to_image=upsample_to_image,
         )
         pseudo_bbox = pseudo["bbox"]
-        pseudo_rows.append(format_pseudo_row(row, fieldnames, pseudo, percentile, min_area_ratio, component))
+        pseudo_rows.append(
+            format_pseudo_row(row, fieldnames, pseudo, percentile, min_area_ratio, component, upsample_to_image)
+        )
 
         gt_bbox = parse_bbox(row.get("bbox", ""))
         if gt_bbox is None:
@@ -253,6 +266,7 @@ def evaluate_setting(
             "percentile": percentile,
             "min_area_ratio": min_area_ratio,
             "component": component,
+            "heatmap_processing": "bilinear_to_image" if upsample_to_image else "native_grid",
             "counts": counts,
             "iou": summarize_values(ious),
             "area_ratio": summarize_values(area_ratios),
@@ -279,15 +293,17 @@ def format_pseudo_row(
     percentile: float,
     min_area_ratio: float,
     component: str,
+    upsample_to_image: bool,
 ) -> dict[str, str]:
     output = {field: row.get(field, "") for field in fieldnames}
     output["bbox"] = format_bbox(pseudo["bbox"])
-    output["bbox_source"] = "pseudo_heatmap_sweep"
+    output["bbox_source"] = "pseudo_heatmap_sweep_upsampled" if upsample_to_image else "pseudo_heatmap_sweep"
     output["pseudo_bbox_score"] = f"{pseudo['score']:.6f}"
     output["pseudo_bbox_area"] = str(pseudo["area"])
     output["pseudo_bbox_percentile"] = f"{percentile:g}"
     output["pseudo_bbox_min_area_ratio"] = f"{min_area_ratio:g}"
     output["pseudo_bbox_component"] = component
+    output["pseudo_bbox_heatmap_processing"] = pseudo["heatmap_processing"]
     return output
 
 
@@ -301,6 +317,7 @@ def write_pseudo_manifest(path: Path, source_fieldnames: list[str], rows: list[d
         "pseudo_bbox_percentile",
         "pseudo_bbox_min_area_ratio",
         "pseudo_bbox_component",
+        "pseudo_bbox_heatmap_processing",
     ):
         if field not in fieldnames:
             fieldnames.append(field)
@@ -332,9 +349,11 @@ def ranking_key(result: dict[str, Any]) -> tuple[float, float, float, float]:
     )
 
 
-def setting_filename(percentile: float, min_area_ratio: float, component: str) -> str:
+def setting_filename(percentile: float, min_area_ratio: float, component: str, upsample_to_image: bool = False) -> str:
+    processing = "upsampled" if upsample_to_image else "native"
     return (
         "pseudo_bbox_"
+        f"{processing}_"
         f"p{slug_float(percentile)}_"
         f"area{slug_float(min_area_ratio)}_"
         f"{component.replace('-', '_')}.csv"
@@ -353,6 +372,7 @@ def format_markdown(summary: dict[str, Any]) -> str:
         f"- Heatmap file: `{summary['heatmap_file']}`",
         f"- Split: `{summary['split']}`",
         f"- Ranking: `{summary['ranking_metric']}`",
+        f"- Heatmap processing: `{summary.get('heatmap_processing', 'native_grid')}`",
         "",
         "| Rank | Percentile | Min Area Ratio | Component | Images | Mean IoU | Median IoU | R@0.25 | R@0.50 | Mean Area Ratio |",
         "|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|",
@@ -410,6 +430,7 @@ def write_summary_csv(path: Path, results: list[dict[str, Any]]) -> None:
         "percentile",
         "min_area_ratio",
         "component",
+        "heatmap_processing",
         "gt_rows",
         "matched_heatmap_rows",
         "evaluated_rows",
@@ -433,6 +454,7 @@ def write_summary_csv(path: Path, results: list[dict[str, Any]]) -> None:
                     "percentile": result["percentile"],
                     "min_area_ratio": result["min_area_ratio"],
                     "component": result["component"],
+                    "heatmap_processing": result.get("heatmap_processing", "native_grid"),
                     "gt_rows": counts["gt_rows"],
                     "matched_heatmap_rows": counts["matched_heatmap_rows"],
                     "evaluated_rows": counts["evaluated_rows"],
