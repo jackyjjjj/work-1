@@ -487,3 +487,199 @@ Candidate design:
 ## Bottom-Line Summary
 
 The project has a complete evaluation and diagnostic pipeline. GT region fusion validates the research motivation, but the current automatic `DINOv2 patch-contrast` pseudo-bbox localizer is weak. Pseudo ROI-only fails, pseudo concat recovers much of the loss through whole-image context, and score-level region-context helps some localized classes. After fixing paired weight comparison, however, the strict 10-way sweep shows that current pseudo region evidence is not robust as a fixed-weight branch: whole-only is best for 10-way 1-shot, and 10-way 5-shot gains from a `0.05` region weight are tiny. The next meaningful progress should come from stronger localization or confidence-adaptive region-context rather than further manual fixed-weight tuning.
+
+## Post-Handoff Addendum - 2026-05-06 23:26 +08:00
+
+This section records the conversation and implementation work that happened after the original `2026-05-05` handoff. It should be read together with the sections above; if there is a conflict, this addendum is newer.
+
+### Conversation After The Handoff
+
+After the handoff was created, the user asked for three clarifications and one follow-up experiment path:
+
+1. Explain the meaning of the completed project modules.
+2. Confirm whether the current bottleneck is the need for a stronger anomaly heatmap localizer.
+3. Describe the project heatmap JSONL format so external localizers can be tested against the existing pseudo-bbox pipeline.
+4. Test a variant where the heatmap is bilinearly upsampled to original image size before thresholding and bbox extraction.
+
+### Meaning Of The Completed Modules
+
+The completed engineering pipeline now covers the full evaluation loop:
+
+- Manifest building and reading: creates and loads a unified sample table with image path, split, label/defect metadata, and optional GT or pseudo bbox.
+- N-way K-shot episode sampler: repeatedly samples reproducible few-shot tasks with support/query splits for settings such as `5-way 1-shot` and `10-way 5-shot`.
+- Cached feature reading: reuses precomputed feature JSONL files so expensive DINOv2 extraction does not need to rerun for every evaluation.
+- DINOv2 whole/bbox extraction: extracts either whole-image context features or cropped ROI features from GT/pseudo bbox regions.
+- Feature concat / weighted fusion: combines whole-image and region features either by feature concatenation or weighted feature/score mixing.
+- Pseudo-bbox heatmap generation and manifest construction: converts anomaly heatmaps into pseudo bbox fields so downstream ROI feature extraction can reuse the same manifest interface.
+- Pseudo-bbox IoU diagnostics and sweep: compares pseudo boxes against GT LabelMe bboxes, ranks heatmap-to-box settings, and writes JSON/Markdown/CSV summaries plus optional generated manifests.
+- Region-context score-level prototype: keeps whole and region branches separate, computes prototype scores per branch, and fuses scores with configurable weights.
+- Per-class confusion diagnostics: evaluates paired episodes and reports per-class recall/F1 deltas plus top true/pred confusion pairs.
+- Lightweight self-check scripts: validates core behavior without requiring pytest in the `work-1` environment.
+
+### Current Bottleneck
+
+Yes: the current practical bottleneck is a stronger anomaly heatmap localizer.
+
+Evidence:
+
+- GT bbox/ROI and GT whole+region fusion show that localized region information can help when localization is accurate.
+- Current `DINOv2 patch-contrast` pseudo-bbox localization is weak:
+  - best mean IoU around `0.1863`
+  - median IoU around `0.0765`
+  - Recall@IoU `0.50` around `0.1388`
+  - selected pseudo boxes are often much larger than GT boxes.
+- Pseudo ROI-only is far below whole-image DINOv2; pseudo concat recovers much of the loss through whole-image context; fixed-weight score fusion is not robust enough to beat whole-only in the strict paired 10-way comparison.
+- Therefore the next meaningful improvement is likely better localization or confidence/adaptive gating, not more manual fixed-weight tuning.
+
+### Heatmap JSONL Contract For External Localizers
+
+The existing pseudo-bbox scripts consume JSONL: one JSON object per image. Minimum required fields are:
+
+```json
+{
+  "image_path": "relative/or/absolute/image.jpg",
+  "image_width": 1024,
+  "image_height": 768,
+  "heatmap": [[0.0, 0.1], [0.2, 1.0]]
+}
+```
+
+Recommended optional fields:
+
+```json
+{
+  "label": "scratch",
+  "split": "train",
+  "object_name": "example_object",
+  "defect_name": "scratch",
+  "heatmap_width": 37,
+  "heatmap_height": 37,
+  "localizer": "patchcore_or_other_method",
+  "model": "model_name_or_checkpoint",
+  "score_normalization": "per_image_minmax"
+}
+```
+
+Important conventions:
+
+- `image_path` is the key used to align heatmaps with manifest rows.
+- Larger heatmap values must mean more anomalous / more likely defect.
+- Per-image min-max normalization to `[0, 1]` is recommended for compatibility with percentile thresholding.
+- `heatmap` can be low-resolution patch-grid output or full-resolution image-grid output.
+- If the heatmap was generated only for `train`, downstream pseudo-bbox and IoU sweep commands must also pass `--split train`.
+
+### Heatmap Resolution Before This Addendum
+
+The existing DINOv2 patch heatmap output is a low-resolution patch grid, usually `37 x 37` with `image_size=518` and ViT patch size `14`.
+
+Before the latest implementation, pseudo-bbox extraction did not bilinearly upsample heatmaps. The old flow was:
+
+```text
+low-res heatmap grid
+-> percentile threshold on native grid
+-> connected components on native grid
+-> chosen component bbox
+-> scale component bbox to original image coordinates
+```
+
+The new upsampling path is optional and keeps this old native-grid path as the default.
+
+### Latest Implementation: Optional Heatmap Upsampling
+
+Added a test path for the user's requested experiment: upsample each heatmap to original image size before thresholding and connected-component bbox extraction.
+
+Changed files:
+
+- `scripts/build_pseudo_bbox_manifest.py`
+- `scripts/sweep_pseudo_bbox_iou.py`
+- `scripts/check_pseudo_bbox.py`
+- `scripts/check_pseudo_bbox_iou_sweep.py`
+- `README.md`
+- `docs/change_log.md`
+
+New CLI option:
+
+```bash
+--upsample-heatmap-to-image
+```
+
+Behavior:
+
+- Default behavior remains `native_grid`; no existing command changes behavior unless the new flag is passed.
+- With `--upsample-heatmap-to-image`, the script bilinearly resizes each heatmap to `image_width x image_height` first.
+- Percentile thresholding, connected components, `largest` / `max-score` component selection, min-area filtering, and bbox extraction then happen on the upsampled image-sized grid.
+- The build script writes `bbox_source=pseudo_heatmap_upsampled` in upsample mode.
+- The build script writes `pseudo_bbox_heatmap_processing=bilinear_to_image` or `native_grid`.
+- The sweep script records `heatmap_processing` in JSON/Markdown/CSV and includes `upsampled` in generated manifest filenames.
+
+Validation commands that passed:
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox.py
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_bbox_iou_sweep.py
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/build_pseudo_bbox_manifest.py scripts/sweep_pseudo_bbox_iou.py scripts/check_pseudo_bbox.py scripts/check_pseudo_bbox_iou_sweep.py
+```
+
+### Server Commands To Compare Native vs Upsampled Heatmaps
+
+Native-grid sweep:
+
+```bash
+mkdir -p outputs/diagnostics outputs/manifests/pseudo_bbox_sweep_native
+
+python scripts/sweep_pseudo_bbox_iou.py \
+  --gt-manifest data/manifests/mvtec_fs.csv \
+  --heatmap-file outputs/heatmaps/dinov2_patch_contrast_train.jsonl \
+  --split train \
+  --percentiles 0.85,0.90,0.95 \
+  --min-area-ratios 0.0005,0.001,0.005 \
+  --components largest,max-score \
+  --output-json outputs/diagnostics/pseudo_bbox_iou_sweep_train_native.json \
+  --output-md outputs/diagnostics/pseudo_bbox_iou_sweep_train_native.md \
+  --output-csv outputs/diagnostics/pseudo_bbox_iou_sweep_train_native.csv \
+  --write-manifests-dir outputs/manifests/pseudo_bbox_sweep_native
+```
+
+Upsampled sweep:
+
+```bash
+mkdir -p outputs/diagnostics outputs/manifests/pseudo_bbox_sweep_upsampled
+
+python scripts/sweep_pseudo_bbox_iou.py \
+  --gt-manifest data/manifests/mvtec_fs.csv \
+  --heatmap-file outputs/heatmaps/dinov2_patch_contrast_train.jsonl \
+  --split train \
+  --percentiles 0.85,0.90,0.95 \
+  --min-area-ratios 0.0005,0.001,0.005 \
+  --components largest,max-score \
+  --upsample-heatmap-to-image \
+  --output-json outputs/diagnostics/pseudo_bbox_iou_sweep_train_upsampled.json \
+  --output-md outputs/diagnostics/pseudo_bbox_iou_sweep_train_upsampled.md \
+  --output-csv outputs/diagnostics/pseudo_bbox_iou_sweep_train_upsampled.csv \
+  --write-manifests-dir outputs/manifests/pseudo_bbox_sweep_upsampled
+```
+
+Inspect results:
+
+```bash
+cat outputs/diagnostics/pseudo_bbox_iou_sweep_train_native.md
+cat outputs/diagnostics/pseudo_bbox_iou_sweep_train_upsampled.md
+```
+
+### Updated Decision Logic
+
+After the native/upsampled comparison:
+
+- If upsampling gives a meaningful gain in mean IoU and Recall@IoU `0.50` without worsening area ratio too much, use the best upsampled manifest to extract pseudo ROI DINOv2 features and rerun pseudo ROI, pseudo concat, and region-context evaluation.
+- If upsampling gives only tiny gains, no gains, or larger over-expanded boxes, deprioritize interpolation and move to a stronger localizer.
+- Candidate stronger localizers remain PatchCore, AnomalyDINO, DINOv2 nearest-memory with normal/good image memory, or pseudo-mask generation instead of pseudo-bbox.
+- Any external localizer should write the JSONL schema above so `scripts/sweep_pseudo_bbox_iou.py`, `scripts/build_pseudo_bbox_manifest.py`, and the existing few-shot pipeline can be reused.
+
+### Updated Immediate Next Steps
+
+1. Run the native-grid and upsampled IoU sweeps on the server.
+2. Paste both Markdown tables back for comparison.
+3. Record the result in `experiments/dinov2_baselines.md` and `docs/change_log.md`.
+4. Decide whether to continue with the best upsampled pseudo manifest or switch to a stronger localizer.
+5. If switching localizers, first generate compatible heatmap JSONL and validate it through the existing sweep script before rerunning feature extraction.
+

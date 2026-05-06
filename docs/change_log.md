@@ -1022,3 +1022,22 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 
 - 在服务器上用 `outputs/heatmaps/dinov2_patch_contrast_train.jsonl` 运行 native-grid 和 upsampled 两套 sweep，对比 mean IoU、Recall@IoU 0.50 和 mean area ratio。
 - 如果上采样只带来极小收益或进一步扩大 bbox，则继续优先尝试 stronger anomaly heatmap localizer。
+
+## 2026-05-06 23:26 +08:00
+
+### 修改目的
+
+把 `handoff_region_context_2026-05-05.md` 之后的对话和已执行工作追加回交接文档，确保新会话可以直接接续 heatmap 格式说明、当前 localization 瓶颈判断，以及 heatmap 上采样测试路径。
+
+### 涉及文件
+
+- `handoff_region_context_2026-05-05.md`
+- `docs/change_log.md`
+
+### 主要内容
+
+- 追加 post-handoff addendum，记录用户关于已完成模块含义、stronger anomaly heatmap localizer、heatmap JSONL schema、是否已上采样的追问。
+- 明确当前 heatmap JSONL 兼容字段和约定：`image_path` 对齐 manifest，较大分数表示更异常，推荐 per-image min-max 到 `[0, 1]`。
+- 说明旧流程是在 native low-resolution patch grid 上 threshold / connected components 后再缩放 bbox，新流程可选 `--upsample-heatmap-to-image` 先双线性 resize 到原图大小。
+- 补充 native-grid 与 upsampled IoU sweep 的服务器对比命令和下一步决策逻辑。
+
