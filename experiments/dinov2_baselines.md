@@ -233,6 +233,43 @@ Interpretation:
 4. `largest` is much more stable than `max-score` for percentile `0.85` and `0.90`; `max-score` often collapses to off-target high-score islands with near-zero median IoU.
 5. Pseudo-bbox + whole-image fusion is necessary for the current localizer; the remaining gap to GT fusion should be addressed by stronger localization and more explicit region-context modeling.
 
+### 6.1 Native-Grid vs Upsampled Heatmap Sweep
+
+After adding `--upsample-heatmap-to-image`, the same 18-setting IoU sweep was rerun in both native-grid and bilinear-to-image modes.
+
+Best setting comparison:
+
+| Heatmap Processing | Best Percentile | Best Min Area Ratio | Best Component | Mean IoU | Median IoU | R@0.25 | R@0.50 | Mean Area Ratio | Pseudo Manifest |
+|---|---:|---:|---|---:|---:|---:|---:|---:|---|
+| native_grid | 0.90 | 0.0005 | largest | 0.1863 | 0.0765 | 0.2788 | 0.1388 | 11.3234 | `outputs/manifests/pseudo_bbox_sweep_native/pseudo_bbox_native_p0p9_area0p0005_largest.csv` |
+| bilinear_to_image | 0.90 | 0.0050 | max-score | 0.1993 | 0.0709 | 0.2946 | 0.1625 | 13.4413 | `outputs/manifests/pseudo_bbox_sweep_upsampled/pseudo_bbox_upsampled_p0p9_area0p005_max_score.csv` |
+
+Useful upsampled alternatives:
+
+| Rank | Percentile | Min Area Ratio | Component | Mean IoU | Median IoU | R@0.25 | R@0.50 | Mean Area Ratio | Observation |
+|---:|---:|---:|---|---:|---:|---:|---:|---:|---|
+| 1 | 0.90 | 0.0050 | max-score | 0.1993 | 0.0709 | 0.2946 | 0.1625 | 13.4413 | Best by ranking, but boxes remain very large. |
+| 2 | 0.95 | 0.0050 | max-score | 0.1962 | 0.0706 | 0.2912 | 0.1558 | 3.6892 | Nearly same IoU with much smaller area ratio. |
+| 3 | 0.90 | 0.0005 | largest | 0.1920 | 0.0722 | 0.2844 | 0.1456 | 14.1434 | Similar to native largest, still over-expanded. |
+
+Delta from native best to upsampled best:
+
+| Metric | Native Best | Upsampled Best | Delta |
+|---|---:|---:|---:|
+| Mean IoU | 0.1863 | 0.1993 | +0.0130 |
+| Median IoU | 0.0765 | 0.0709 | -0.0056 |
+| R@0.25 | 0.2788 | 0.2946 | +0.0158 |
+| R@0.50 | 0.1388 | 0.1625 | +0.0237 |
+| Mean Area Ratio | 11.3234 | 13.4413 | +2.1179 |
+
+Interpretation:
+
+1. Bilinear upsampling provides a real but modest improvement: mean IoU increases by `+0.0130` and Recall@IoU 0.50 increases by `+2.37` points.
+2. The median IoU remains around `0.07`, so most pseudo boxes are still poorly aligned with GT boxes.
+3. The best upsampled setting has an even larger mean pseudo/GT area ratio (`13.44`), indicating persistent over-expanded boxes.
+4. The `0.95 / 0.005 / max-score` upsampled setting is a useful compact-box alternative, with mean IoU `0.1962` and much lower area ratio `3.6892`.
+5. Upsampling alone is therefore not enough to solve localization. It can be used as a small diagnostic improvement, but the next major gain likely requires a stronger heatmap localizer or a pseudo-mask/localization method that avoids over-large boxes.
+
 ## 7. Delta Analysis
 
 ### 7.1 BBox/ROI vs Whole-Image
@@ -478,6 +515,8 @@ Interpretation:
 10. Per-class confusion analysis shows that region-context mainly improves localized structural classes, while appearance/global classes and scratch-like fine-grained classes need score calibration or adaptive weights.
 11. Fine 10-way weight scanning moves the best fixed weights toward whole-heavy fusion (`0.90/0.10` for 1-shot and `0.80/0.20` for 5-shot), confirming that the current pseudo region signal should be a small correction rather than a dominant branch.
 12. New-best-weight confusion confirms the gains but preserves scratch/color/manipulated-front regressions, so the next classifier change should be score normalization or confidence-adaptive weighting rather than another single fixed weight.
+13. Bilinear upsampling before pseudo-bbox extraction modestly improves localization (`Mean IoU 0.1993` vs `0.1863`, `R@0.50 0.1625` vs `0.1388`), but the median IoU remains low and the best setting still over-expands boxes.
+14. Because interpolation only gives a small localization gain, the next major improvement should come from stronger anomaly heatmaps, pseudo-mask quality, or confidence-adaptive region gating rather than more fixed pseudo-bbox threshold tuning.
 
 ## 9. Paper-Writing Takeaway
 
@@ -505,3 +544,5 @@ stronger anomaly heatmap localizer
   -> better pseudo bbox / pseudo mask
   -> calibrated or adaptive region-context prototype
 ```
+
+After the native-vs-upsampled pseudo-bbox sweep, bilinear upsampling is best treated as a small diagnostic improvement rather than a new solution. If running one more pseudo-bbox feature extraction is cheap, test the compact upsampled `0.95 / 0.005 / max-score` manifest as a sanity check; otherwise prioritize stronger heatmaps such as PatchCore, AnomalyDINO, or nearest-memory DINOv2 with normal/good images.

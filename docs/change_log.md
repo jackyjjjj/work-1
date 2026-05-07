@@ -1069,3 +1069,54 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 ```
 
 结果：通过。
+
+## 2026-05-07 +08:00
+
+### 修改目的
+
+记录服务器端 native-grid 与 bilinear-to-image upsampled pseudo-bbox IoU sweep 结果，并更新当前 localization 结论。
+
+### 涉及文件
+
+- `experiments/dinov2_baselines.md`
+- `handoff_region_context_2026-05-05.md`
+- `docs/change_log.md`
+
+### 主要内容
+
+- 记录 native-grid best：`0.90 / 0.0005 / largest`，Mean IoU `0.1863`，Median IoU `0.0765`，Recall@IoU 0.50 `0.1388`，Mean Area Ratio `11.3234`。
+- 记录 upsampled best：`0.90 / 0.005 / max-score`，Mean IoU `0.1993`，Median IoU `0.0709`，Recall@IoU 0.50 `0.1625`，Mean Area Ratio `13.4413`。
+- 记录 compact upsampled alternative：`0.95 / 0.005 / max-score`，Mean IoU `0.1962`，Recall@IoU 0.50 `0.1558`，Mean Area Ratio `3.6892`。
+- 更新结论：上采样带来小幅提升，但 median IoU 仍低且过大 bbox 问题未解决；下一步仍应优先考虑 stronger anomaly heatmap localizer、pseudo-mask 或 confidence-adaptive region-context。
+
+### 验证
+
+本次为文档记录更新；未改动可执行代码。
+
+## 2026-05-07 +08:00
+
+### 修改目的
+
+把 heatmap -> pseudo-mask 路径补齐，支持直接生成 pseudo-mask manifest，并基于 mask 区域提取 DINOv2 特征。
+
+### 涉及文件
+
+- `scripts/build_pseudo_mask_manifest.py`
+- `scripts/extract_dinov2_features.py`
+- `scripts/check_pseudo_mask.py`
+- `README.md`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `scripts/build_pseudo_mask_manifest.py`，把 anomaly heatmap 转成二值 pseudo-mask PNG，并回写 `mask_path`、tight `bbox`、mask 统计字段到新的 manifest。
+- 扩展 `scripts/extract_dinov2_features.py`，新增 `--region mask` 和 `--mask-background {black,keep}`，支持按 mask 紧框裁剪并按需抹黑背景。
+- 新增 `scripts/check_pseudo_mask.py`，覆盖 native-grid / upsampled pseudo-mask 生成、manifest CLI smoke test，以及 mask crop helper 的本地自检。
+- 在 `README.md` 补充 pseudo-mask 生成与 `--region mask` 特征提取命令，便于直接把现有 heatmap 管线切换到 mask 版本。
+
+### 验证命令
+
+```bash
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_mask.py
+/home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/build_pseudo_mask_manifest.py scripts/extract_dinov2_features.py scripts/check_pseudo_mask.py
+```

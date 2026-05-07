@@ -683,3 +683,42 @@ After the native/upsampled comparison:
 4. Decide whether to continue with the best upsampled pseudo manifest or switch to a stronger localizer.
 5. If switching localizers, first generate compatible heatmap JSONL and validate it through the existing sweep script before rerunning feature extraction.
 
+### Native vs Upsampled IoU Sweep Result - 2026-05-07
+
+The user ran both pseudo-bbox IoU sweeps on the server and pasted the Markdown tables.
+
+Best native-grid result:
+
+- Percentile: `0.90`
+- Min area ratio: `0.0005`
+- Component: `largest`
+- Mean IoU: `0.1863`
+- Median IoU: `0.0765`
+- Recall@IoU 0.50: `0.1388`
+- Mean pseudo/GT area ratio: `11.3234`
+- Pseudo manifest: `outputs/manifests/pseudo_bbox_sweep_native/pseudo_bbox_native_p0p9_area0p0005_largest.csv`
+
+Best upsampled result:
+
+- Percentile: `0.90`
+- Min area ratio: `0.005`
+- Component: `max-score`
+- Mean IoU: `0.1993`
+- Median IoU: `0.0709`
+- Recall@IoU 0.50: `0.1625`
+- Mean pseudo/GT area ratio: `13.4413`
+- Pseudo manifest: `outputs/manifests/pseudo_bbox_sweep_upsampled/pseudo_bbox_upsampled_p0p9_area0p005_max_score.csv`
+
+Important comparison:
+
+- Upsampling improves mean IoU by `+0.0130` and Recall@IoU 0.50 by `+0.0237`.
+- Median IoU slightly drops (`0.0765 -> 0.0709`).
+- Mean area ratio worsens (`11.3234 -> 13.4413`), so over-expanded boxes remain a problem.
+- Upsampled `0.95 / 0.005 / max-score` is a compact alternative: Mean IoU `0.1962`, R@0.50 `0.1558`, mean area ratio `3.6892`.
+
+Decision update:
+
+- Bilinear upsampling is a modest improvement, not a sufficient localization fix.
+- If one more cheap pseudo-feature experiment is desired, use the compact upsampled setting first (`p0.95_area0.005_max_score`), or the ranked-best setting if strictly optimizing mean IoU.
+- The main next direction should still be a stronger heatmap localizer or confidence-adaptive region-context.
+

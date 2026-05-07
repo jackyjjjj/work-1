@@ -377,6 +377,49 @@ python scripts/sweep_pseudo_bbox_iou.py \
 
 `--upsample-heatmap-to-image` keeps the JSONL heatmap cache unchanged, but resizes each heatmap to `image_width x image_height` with bilinear interpolation before percentile thresholding and connected-component selection. The default remains native-grid thresholding.
 
+
+## Pseudo-Mask From Anomaly Heatmaps
+
+Instead of collapsing the anomaly heatmap into a pseudo-bbox, you can write a binary pseudo-mask and keep the region shape for later feature extraction.
+
+```bash
+mkdir -p outputs/masks/pseudo_train
+python scripts/build_pseudo_mask_manifest.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --heatmap-file outputs/heatmaps/dinov2_patch_contrast_train.jsonl \
+  --mask-dir outputs/masks/pseudo_train \
+  --output data/manifests/mvtec_fs_pseudo_mask_train.csv \
+  --split train \
+  --percentile 0.90 \
+  --min-area-ratio 0.005 \
+  --component max-score \
+  --upsample-heatmap-to-image \
+  --missing-policy error \
+  --overwrite
+```
+
+Then extract DINOv2 features from mask-guided crops:
+
+```bash
+mkdir -p outputs/features/dinov2_pseudo_mask
+python scripts/extract_dinov2_features.py \
+  --manifest data/manifests/mvtec_fs_pseudo_mask_train.csv \
+  --image-root /home/jack/datasets/MVTec-FS \
+  --split train \
+  --output outputs/features/dinov2_pseudo_mask/mvtec_fs_train.jsonl \
+  --model dinov2_vits14 \
+  --region mask \
+  --mask-background black \
+  --bbox-padding 0.15 \
+  --min-crop-size 32 \
+  --batch-size 16 \
+  --device auto \
+  --overwrite
+```
+
+`--mask-background black` zeros pixels outside the pseudo-mask inside the padded crop. Use `--mask-background keep` if you want to preserve the surrounding context. Then run the usual few-shot grid with `data/manifests/mvtec_fs_pseudo_mask_train.csv` and `outputs/features/dinov2_pseudo_mask/mvtec_fs_train.jsonl`.
+
+
 If pseudo-bbox ROI is weak, test whether whole-image context recovers performance by fusing whole-image and pseudo-bbox features:
 
 ```bash

@@ -21,9 +21,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-root", required=True, help="Root directory used to resolve relative image_path values.")
     parser.add_argument("--output", required=True, help="Output JSONL feature cache path.")
     parser.add_argument("--split", default="train", help="Manifest split to extract. Use 'all' for all splits.")
-    parser.add_argument("--region", default="whole", choices=["whole", "bbox"], help="Feature region: whole image or bbox crop.")
+    parser.add_argument(
+        "--region",
+        default="whole",
+        choices=["whole", "bbox", "mask"],
+        help="Feature region: whole image, bbox crop, or mask-guided crop.",
+    )
     parser.add_argument("--bbox-padding", type=float, default=0.15, help="Relative padding added around bbox crops.")
     parser.add_argument("--min-crop-size", type=int, default=32, help="Minimum crop width/height in pixels for bbox mode.")
+    parser.add_argument(
+        "--mask-background",
+        default="black",
+        choices=["black", "keep"],
+        help="How to fill pixels outside the mask when --region mask is used.",
+    )
     parser.add_argument("--model", default="dinov2_vits14", help="Torch Hub DINOv2 model name.")
     parser.add_argument("--repo-or-dir", default="facebookresearch/dinov2", help="Torch Hub repo or local DINOv2 repo.")
     parser.add_argument("--source", default="github", choices=["github", "local"], help="Torch Hub source.")
@@ -68,6 +79,7 @@ def main() -> None:
         region=args.region,
         bbox_padding=args.bbox_padding,
         min_crop_size=args.min_crop_size,
+        mask_background=args.mask_background,
     )
     loader = DataLoader(
         dataset,
@@ -125,6 +137,7 @@ class ManifestImageDataset:
         region: str,
         bbox_padding: float,
         min_crop_size: int,
+        mask_background: str,
     ) -> None:
         self.records = records
         self.image_root = image_root.expanduser().resolve()
@@ -133,6 +146,7 @@ class ManifestImageDataset:
         self.region = region
         self.bbox_padding = bbox_padding
         self.min_crop_size = min_crop_size
+        self.mask_background = mask_background
 
     def __len__(self) -> int:
         return len(self.records)
@@ -150,6 +164,16 @@ class ManifestImageDataset:
                 min_crop_size=self.min_crop_size,
             )
             image = image.crop(crop_box)
+        elif self.region == "mask":
+            image, crop_box = apply_mask_crop(
+                image=image,
+                mask_path=record.mask_path,
+                image_root=self.image_root,
+                image_cls=self.image_cls,
+                padding=self.bbox_padding,
+                min_crop_size=self.min_crop_size,
+                background_mode=self.mask_background,
+            )
         return {"image": self.transform(image), "record": record, "crop_box": crop_box}
 
 
@@ -204,6 +228,66 @@ def compute_padded_crop_box(
     right_i = max(left_i + 1, min(width, int(round(right))))
     bottom_i = max(top_i + 1, min(height, int(round(bottom))))
     return (left_i, top_i, right_i, bottom_i)
+
+
+def apply_mask_crop(
+    image: Any,
+    mask_path: str | None,
+    image_root: Path,
+    image_cls: Any,
+    padding: float,
+    min_crop_size: int,
+    background_mode: str,
+) -> tuple[Any, tuple[int, int, int, int]]:
+    """Crop to the tight mask box and optionally zero the background outside the mask."""
+
+    width, height = image.size
+    mask_bbox = compute_mask_bbox(mask_path=mask_path, image_root=image_root, image_cls=image_cls, image_size=image.size)
+    crop_box = compute_padded_crop_box(
+        bbox_text=format_bbox_tuple(mask_bbox),
+        image_size=(width, height),
+        padding=padding,
+        min_crop_size=min_crop_size,
+    )
+    cropped_image = image.crop(crop_box)
+    if background_mode == "keep":
+        return cropped_image, crop_box
+
+    mask_image = load_mask_image(mask_path=mask_path, image_root=image_root, image_cls=image_cls, image_size=image.size)
+    cropped_mask = mask_image.crop(crop_box)
+    background = image_cls.new("RGB", cropped_image.size, color=(0, 0, 0))
+    return image_cls.composite(cropped_image, background, cropped_mask), crop_box
+
+
+def compute_mask_bbox(
+    mask_path: str | None,
+    image_root: Path,
+    image_cls: Any,
+    image_size: tuple[int, int],
+) -> tuple[float, float, float, float]:
+    mask = load_mask_image(mask_path=mask_path, image_root=image_root, image_cls=image_cls, image_size=image_size)
+    bbox = mask.getbbox()
+    if bbox is None:
+        width, height = image_size
+        return (0.0, 0.0, float(width), float(height))
+    left, top, right, bottom = bbox
+    return (float(left), float(top), float(right), float(bottom))
+
+
+def load_mask_image(mask_path: str | None, image_root: Path, image_cls: Any, image_size: tuple[int, int]) -> Any:
+    if not mask_path:
+        raise ValueError("mask_path is required when --region mask is used")
+    resolved = _resolve_image_path(mask_path, image_root)
+    mask = image_cls.open(resolved).convert("L")
+    if mask.size != image_size:
+        raise ValueError(
+            f"Mask size {mask.size} does not match image size {image_size} for mask_path={resolved}"
+        )
+    return mask
+
+
+def format_bbox_tuple(bbox: tuple[float, float, float, float]) -> str:
+    return ",".join(f"{value:.2f}" for value in bbox)
 
 
 def _shift_into_bounds(start: float, end: float, limit: int) -> tuple[float, float]:
