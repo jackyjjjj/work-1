@@ -1198,3 +1198,173 @@ bash run_anomalydino_to_work1.sh
   --feature-dim 384 --output-json outputs/results/anomalydino_mask_prototype_grid_test.json \
   --output-md outputs/results/anomalydino_mask_prototype_grid_test.md
 ```
+## 2026-05-08 +08:00
+
+### 修改目的
+
+把 `heatmap` 目录下的 `RealNet` 和 `EfficientAD` 也接成与 `AnomalyDINO` 类似的模式：先在各自项目内导出 work-1 兼容的 heatmap JSONL，再由 `work-1` 统一完成 heatmap 合并/去重、pseudo-bbox、pseudo-mask、DINOv2 mask 特征提取和 few-shot 分类评估。
+
+### 涉及文件
+
+- `run_heatmap_to_work1.sh`
+- `docs/change_log.md`
+- `/home/jack/workspace/heatmap/RealNet/run_mvtecfs_realnet.py`
+- `/home/jack/workspace/heatmap/EfficientAD/run_mvtecfs_efficientad.py`
+- `/home/jack/workspace/heatmap/RealNet/log.md`
+- `/home/jack/workspace/heatmap/EfficientAD/log.md`
+
+### 主要改动
+
+- 新增统一桥接脚本 `run_heatmap_to_work1.sh`，通过 `PROJECT=anomalydino|realnet|efficientad` 选择 heatmap 来源，默认都使用 `AnomalyDINO` conda 环境执行 heavy deps 相关步骤。
+- `PROJECT=realnet` 时调用 `RealNet/run_mvtecfs_realnet.py`，输出 `outputs/heatmaps/realnet_raw/realnet/*_valid.jsonl`，再合并为 `outputs/heatmaps/realnet_test_merged.jsonl`，去重后继续生成 pseudo-mask 和分类结果。
+- `PROJECT=efficientad` 时调用 `EfficientAD/run_mvtecfs_efficientad.py`，输出 `outputs/heatmaps/efficientad_raw/efficientad_<model_size>/*_valid.jsonl`，再走同一套 pseudo-mask 和分类流程。
+- 保留 `PROJECT=anomalydino` 分支，便于后续用同一个入口复跑已有 AnomalyDINO 流程。
+
+### 使用方式
+
+```bash
+# RealNet -> heatmap -> pseudo-mask -> mask feature -> few-shot classification
+cd /home/jack/workspace/work-1
+PROJECT=realnet RUN_ENV=AnomalyDINO bash run_heatmap_to_work1.sh
+
+# EfficientAD small -> heatmap -> pseudo-mask -> mask feature -> few-shot classification
+cd /home/jack/workspace/work-1
+PROJECT=efficientad MODEL_SIZE=small RUN_ENV=AnomalyDINO bash run_heatmap_to_work1.sh
+```
+
+### 注意事项
+
+- RealNet 运行需要对应 object 的 `ckpt_best.pth.tar`，默认路径为 `/home/jack/workspace/heatmap/RealNet/experiments/MVTec-AD/realnet_checkpoints/<object>/ckpt_best.pth.tar`；如果权重在其他位置，可用 `checkpoint-template` 相关环境变量或直接运行 `run_mvtecfs_realnet.py` 指定。
+- EfficientAD 运行需要每个 object 的 `student_final.pth` 和 `autoencoder_final.pth`，默认路径为 `/home/jack/workspace/heatmap/EfficientAD/output/1/trainings/mvtec_ad/<object>/`；当前仓库只看到 teacher 权重，因此完整推理前需要先放入/训练 per-object student 与 autoencoder 权重。
+- MVTec-FS 的 `CONFIG/*/valid.csv` 在 `work-1` manifest 中对应 `split=test`，因此桥接脚本默认 `FS_SPLIT=valid`、`SPLIT=test`。
+
+### 验证命令
+
+```bash
+/home/jack/miniconda3/bin/conda run -n AnomalyDINO python -m py_compile \
+  /home/jack/workspace/heatmap/RealNet/run_mvtecfs_realnet.py \
+  /home/jack/workspace/heatmap/EfficientAD/run_mvtecfs_efficientad.py \
+  /home/jack/workspace/heatmap/EfficientAD/efficientad.py
+bash -n run_heatmap_to_work1.sh
+/home/jack/miniconda3/bin/conda run -n AnomalyDINO python /home/jack/workspace/heatmap/RealNet/run_mvtecfs_realnet.py --help
+/home/jack/miniconda3/bin/conda run -n AnomalyDINO python /home/jack/workspace/heatmap/EfficientAD/run_mvtecfs_efficientad.py --help
+```
+
+结果：语法检查和 CLI 导入验证通过；由于本地未发现 RealNet/EfficientAD 的 per-object 推理权重，本次未启动完整模型推理。
+## 2026-05-08 +08:00
+
+### 修改目的
+
+加固 `work-1` 的 heatmap 接入层，确保 AnomalyDINO、RealNet、EfficientAD 三种 heatmap 都先通过统一契约校验后再进入 pseudo-bbox / pseudo-mask / 分类流程；同时为后续新增 heatmap 方法保留通用 `PROJECT=external` 接入口。
+
+### 涉及文件
+
+- `run_heatmap_to_work1.sh`
+- `scripts/validate_heatmap_jsonl.py`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `scripts/validate_heatmap_jsonl.py`，定义并校验 work-1 通用 heatmap JSONL 契约：必须包含 `image_path`、二维数值 `heatmap`，并默认要求 `image_width` / `image_height` 以支持上采样到原图尺寸。
+- 校验脚本支持 manifest 覆盖率检查：按 `--split test` 对齐 `data/manifests/mvtec_fs.csv`，确保每条 test manifest 都能找到对应 heatmap，并报告 extra / missing heatmap。
+- 校验脚本支持重复 `image_path` 检查和尺寸一致性检查，允许 raw output 阶段使用 `max` 等策略提示重复，dedupe 后使用 `error` 确保唯一。
+- 改造 `run_heatmap_to_work1.sh`：AnomalyDINO、RealNet、EfficientAD 三个分支都在 merge 后、dedupe 后各跑一次 heatmap 契约校验，避免不兼容 heatmap 继续进入 pseudo-mask。
+- 新增 `PROJECT=external` 通用入口，后续新方法只要提供兼容 JSONL，就能通过 `HEATMAP_FILE`、`HEATMAP_INPUT_FILES` 或 `HEATMAP_INPUT_DIR` 接入，不需要改 pseudo-mask / 分类脚本。
+- 新增阶段开关：`RUN_PSEUDO_BBOX`、`RUN_PSEUDO_MASK`、`RUN_FEATURES`、`RUN_CLASSIFICATION`、`VALIDATE_HEATMAPS`，便于只验证 heatmap、只生成 mask 或跳过分类。
+- 新增 `SKIP_HEATMAP_GENERATION=1`，可复用已有 raw heatmap 文件重新走 work-1 后处理流程。
+
+### 后续新方法接入要求
+
+每行 JSONL 至少需要：
+
+```json
+{"image_path":"image/bottle/testing/broken_large/010.png","image_width":900,"image_height":900,"heatmap":[[0.0,0.1],[0.2,1.0]]}
+```
+
+推荐同时提供：`label`、`split`、`object_name`、`defect_name`、`heatmap_width`、`heatmap_height`、`localizer`、`model`、`score_normalization`。
+
+新方法接入示例：
+
+```bash
+cd /home/jack/workspace/work-1
+PROJECT=external METHOD_NAME=new_method \
+  HEATMAP_INPUT_DIR=/path/to/new_method/jsonl \
+  HEATMAP_INPUT_GLOB='*.jsonl' \
+  RUN_ENV=AnomalyDINO \
+  bash run_heatmap_to_work1.sh
+```
+
+如果只有一个合并好的 heatmap 文件：
+
+```bash
+PROJECT=external METHOD_NAME=new_method HEATMAP_FILE=/path/to/new_method.jsonl \
+  RUN_ENV=AnomalyDINO bash run_heatmap_to_work1.sh
+```
+
+### 验证命令
+
+```bash
+bash -n run_heatmap_to_work1.sh
+/home/jack/miniconda3/bin/conda run -n AnomalyDINO python -m py_compile scripts/validate_heatmap_jsonl.py
+/home/jack/miniconda3/bin/conda run -n AnomalyDINO python scripts/validate_heatmap_jsonl.py \
+  --heatmap-file outputs/heatmaps/anomalydino_test_1shot_seed0_dedup_max.jsonl \
+  --manifest data/manifests/mvtec_fs.csv --split test \
+  --coverage-policy error --duplicate-policy error --require-image-size
+PROJECT=external METHOD_NAME=anomalydino_existing \
+  HEATMAP_FILE=outputs/heatmaps/anomalydino_test_1shot_seed0_dedup_max.jsonl \
+  SKIP_HEATMAP_GENERATION=1 RUN_PSEUDO_BBOX=0 RUN_PSEUDO_MASK=0 RUN_FEATURES=0 RUN_CLASSIFICATION=0 \
+  bash run_heatmap_to_work1.sh
+```
+
+结果：通过。AnomalyDINO dedup heatmap 覆盖 `test=594` 的全部 manifest 行；`PROJECT=external` dry-run 可完成 merge、dedupe 和契约校验。
+
+## 2026-05-09 +08:00
+
+### 修改目的
+
+新增并验证三模型批处理入口，用同一条 work-1 后处理链路评估 AnomalyDINO、RealNet、EfficientAD 的 heatmap：heatmap JSONL -> pseudo-mask -> DINOv2 mask feature -> few-shot classification。
+
+### 涉及文件
+
+- `run_three_heatmap_models.sh`
+- `run_heatmap_to_work1.sh`
+- `scripts/summarize_heatmap_model_results.py`
+- `outputs/results/three_heatmap_models_summary.md`
+
+### 主要改动
+
+- 新增 `run_three_heatmap_models.sh`，默认依次调用 `PROJECT=anomalydino`、`PROJECT=realnet`、`PROJECT=efficientad`，并将每个模型的分类结果汇总到 `outputs/results/three_heatmap_models_summary.md`。
+- `run_three_heatmap_models.sh` 默认 `FORCE_RERUN=1`，因此直接执行脚本会重新走 work-1 的 pseudo-mask、feature extraction、few-shot classification；如果只想复用已有结果，可设置 `FORCE_RERUN=0`。
+- 三模型入口统一使用 `RUN_ENV=AnomalyDINO` 执行 heatmap / pseudo-mask / DINOv2 特征等重依赖步骤，使用 `WORK1_ENV=work-1` 执行 few-shot 分类脚本。
+- 批处理脚本会在 RealNet 或 EfficientAD 缺少 per-object 推理权重时跳过对应模型并继续运行其他模型，避免一个模型缺权重导致整批中断。
+
+### 本次验证
+
+执行命令：
+
+```bash
+cd /home/jack/workspace/work-1
+bash run_three_heatmap_models.sh
+```
+
+结果：
+
+- AnomalyDINO：完整完成 heatmap 合并、dedupe、pseudo-bbox、pseudo-mask、DINOv2 mask feature 和 5-way few-shot 分类。
+- RealNet：跳过，原因是未找到每个类别的 `ckpt_best.pth.tar`。
+- EfficientAD-small：跳过，原因是未找到每个类别的 `student_final.pth` 和 `autoencoder_final.pth`；本机仅发现 `teacher_small.pth` / `teacher_medium.pth`。
+
+AnomalyDINO 本次分类效果：
+
+| Setting | Episodes | Accuracy | Balanced Acc | Macro-F1 |
+|---|---:|---:|---:|---:|
+| 5-way 1-shot | 100 | 78.76 ± 11.91 | 78.76 ± 11.91 | 76.82 ± 13.23 |
+| 5-way 3-shot | 100 | 86.92 ± 9.75 | 86.92 ± 9.75 | 86.05 ± 10.64 |
+| 5-way 5-shot | 100 | 85.56 ± 10.34 | 85.56 ± 10.34 | 84.60 ± 11.25 |
+
+关键输出：
+
+- `outputs/heatmaps/anomalydino_test_1shot_seed0_dedup_max.jsonl`
+- `data/manifests/mvtec_fs_anomalydino_test_1shot_seed0_pseudo_mask.csv`
+- `outputs/features/dinov2_mask_anomalydino_test_1shot_seed0/mvtec_fs_test.jsonl`
+- `outputs/results/anomalydino_test_1shot_seed0_mask_prototype_grid.md`
+- `outputs/results/three_heatmap_models_summary.md`
