@@ -1120,3 +1120,81 @@ python scripts/extract_dinov2_features.py --manifest data/manifests/mvtec_fs.csv
 /home/jack/miniconda3/bin/conda run -n work-1 python scripts/check_pseudo_mask.py
 /home/jack/miniconda3/bin/conda run -n work-1 python -m py_compile scripts/build_pseudo_mask_manifest.py scripts/extract_dinov2_features.py scripts/check_pseudo_mask.py
 ```
+
+## 2026-05-08 +08:00
+
+### 修改目的
+
+接入 `/home/jack/workspace/heatmap/AnomalyDINO` 生成的 MVTec-FS heatmap 到 `work-1`，补齐 heatmap 去重、pseudo-bbox / pseudo-mask 生成链路，并用 pseudo-mask 区域特征验证 few-shot 分类效果。
+
+### 涉及文件
+
+- `run_anomalydino_to_work1.sh`
+- `scripts/dedupe_heatmap_jsonl.py`
+- `data/manifests/mvtec_fs.csv`
+- `data/manifests/mvtec_fs_anomalydino_pseudo_bbox_test_1shot_seed0.csv`
+- `data/manifests/mvtec_fs_anomalydino_pseudo_mask_test_1shot_seed0.csv`
+- `outputs/heatmaps/anomalydino_test_1shot_seed0_merged.jsonl`
+- `outputs/heatmaps/anomalydino_test_1shot_seed0_dedup_max.jsonl`
+- `outputs/masks/anomalydino_test_1shot_seed0/`
+- `outputs/features/dinov2_mask_anomalydino/mvtec_fs_test.jsonl`
+- `outputs/features/dinov2_whole/mvtec_fs_test.jsonl`
+- `outputs/features/dinov2_bbox_anomalydino/mvtec_fs_test.jsonl`
+- `outputs/results/anomalydino_mask_prototype_grid_test.{json,md}`
+- `outputs/results/dinov2_whole_prototype_grid_test.{json,md}`
+- `outputs/results/anomalydino_bbox_prototype_grid_test.{json,md}`
+- `docs/change_log.md`
+
+### 主要改动
+
+- 新增 `run_anomalydino_to_work1.sh`，串联 `AnomalyDINO` 环境推理、按 object 合并 heatmap JSONL、去重，以及 `work-1` pseudo-bbox manifest 生成。
+- 新增 `scripts/dedupe_heatmap_jsonl.py`，按 `image_path` 处理重复 heatmap，支持 `error` / `first` / `last` / `max` 策略；当前桥接脚本默认使用像素级 `max` 合并重复项。
+- 桥接脚本默认使用 `/home/jack/workspace/data/MVTec-FS`、`/home/jack/workspace/heatmap/AnomalyDINO` 和 `/home/jack/workspace/work-1` 目录布局，并用 `AnomalyDINO` conda 环境执行需要 NumPy/OpenCV/PIL 的 heatmap 上采样步骤。
+- 使用去重后的 AnomalyDINO heatmap 生成 pseudo-bbox manifest，再进一步生成 pseudo-mask manifest 和 594 张 pseudo-mask PNG。
+- 基于同一 test split 提取三组 DINOv2 特征：whole image、AnomalyDINO pseudo-bbox、AnomalyDINO pseudo-mask，用于横向评估分类效果。
+
+### 产物统计
+
+- `data/manifests/mvtec_fs.csv`：1228 条记录，其中 `train=634`，`test=594`。
+- `outputs/heatmaps/anomalydino_test_1shot_seed0_merged.jsonl`：720 行。
+- `outputs/heatmaps/anomalydino_test_1shot_seed0_dedup_max.jsonl`：594 行。
+- `data/manifests/mvtec_fs_anomalydino_pseudo_bbox_test_1shot_seed0.csv`：594 行。
+- `data/manifests/mvtec_fs_anomalydino_pseudo_mask_test_1shot_seed0.csv`：594 行。
+- `outputs/masks/anomalydino_test_1shot_seed0/`：594 张 pseudo-mask PNG。
+
+### 分类验证结果
+
+设置：`split=test`，`5-way`，`q_queries=5`，`episodes=100`，DINOv2 `dinov2_vits14`，cached feature dim `384`。
+
+| Setting | Whole Acc | Pseudo-BBox Acc | Pseudo-Mask Acc | Mask vs Whole | Mask vs BBox | Mask Macro-F1 |
+|---|---:|---:|---:|---:|---:|---:|
+| 5-way 1-shot | 78.88 | 72.24 | 78.76 | -0.12 | +6.52 | 76.82 |
+| 5-way 3-shot | 84.32 | 81.44 | 86.92 | +2.60 | +5.48 | 86.05 |
+| 5-way 5-shot | 79.40 | 78.00 | 85.56 | +6.16 | +7.56 | 84.60 |
+
+结论：pseudo-mask 特征在 1-shot 与 whole-image 基本持平，并明显优于 pseudo-bbox；在 3-shot 和 5-shot 下均超过 whole-image 与 pseudo-bbox，说明 AnomalyDINO heatmap 转 pseudo-mask 后对分类是有效的。
+
+### 验证命令
+
+```bash
+bash run_anomalydino_to_work1.sh
+/home/jack/miniconda3/bin/conda run -n AnomalyDINO python scripts/build_pseudo_mask_manifest.py \
+  --manifest data/manifests/mvtec_fs.csv \
+  --heatmap-file outputs/heatmaps/anomalydino_test_1shot_seed0_dedup_max.jsonl \
+  --mask-dir outputs/masks/anomalydino_test_1shot_seed0 \
+  --output data/manifests/mvtec_fs_anomalydino_pseudo_mask_test_1shot_seed0.csv \
+  --split test --percentile 0.90 --min-area-ratio 0.001 \
+  --component all --upsample-heatmap-to-image --missing-policy error --overwrite
+/home/jack/miniconda3/bin/conda run -n AnomalyDINO python scripts/extract_dinov2_features.py \
+  --manifest data/manifests/mvtec_fs_anomalydino_pseudo_mask_test_1shot_seed0.csv \
+  --image-root /home/jack/workspace/data/MVTec-FS --split test --region mask \
+  --mask-background black --repo-or-dir /home/jack/.cache/torch/hub/facebookresearch_dinov2_main \
+  --source local --output outputs/features/dinov2_mask_anomalydino/mvtec_fs_test.jsonl \
+  --device cuda:0 --batch-size 16 --num-workers 2 --overwrite
+/home/jack/miniconda3/bin/conda run -n work-1 python scripts/run_fewshot_grid.py \
+  --manifest data/manifests/mvtec_fs_anomalydino_pseudo_mask_test_1shot_seed0.csv \
+  --split test --grid 5:1,5:3,5:5 --q-queries 5 --episodes 100 \
+  --feature-source cached --feature-file outputs/features/dinov2_mask_anomalydino/mvtec_fs_test.jsonl \
+  --feature-dim 384 --output-json outputs/results/anomalydino_mask_prototype_grid_test.json \
+  --output-md outputs/results/anomalydino_mask_prototype_grid_test.md
+```
