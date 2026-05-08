@@ -10,7 +10,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from build_pseudo_bbox_manifest import filter_rows_by_split, heatmap_to_bbox, main, resize_heatmap_bilinear
+from build_pseudo_bbox_manifest import filter_rows_by_split, heatmap_to_bbox, load_heatmap_cache, main, resize_heatmap_bilinear
 
 
 def test_heatmap_to_bbox_directly() -> None:
@@ -66,6 +66,39 @@ def test_heatmap_upsample_to_image() -> None:
     assert upsampled["bbox"] == (3.0, 3.0, 4, 4), upsampled
 
 
+def test_duplicate_heatmap_policy() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        heatmaps = Path(tmp_dir) / "heatmaps.jsonl"
+        heatmaps.write_text(
+            json.dumps(
+                {
+                    "image_path": "a.png",
+                    "image_width": 4,
+                    "image_height": 4,
+                    "heatmap": [[0.0, 0.2], [0.1, 0.0]],
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {
+                    "image_path": "a.png",
+                    "image_width": 4,
+                    "image_height": 4,
+                    "heatmap": [[0.3, 0.1], [0.4, 0.5]],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        cache = load_heatmap_cache(heatmaps)
+        assert cache["a.png"]["heatmap"] == [[0.3, 0.2], [0.4, 0.5]]
+        assert cache["a.png"]["_duplicate_count"] == 2
+        try:
+            load_heatmap_cache(heatmaps, duplicate_policy="error")
+        except ValueError as exc:
+            assert "Duplicate image_path" in str(exc)
+        else:
+            raise AssertionError("duplicate-policy error should fail on repeated image_path")
 
 def test_build_pseudo_bbox_manifest_cli() -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -278,6 +311,7 @@ def test_build_pseudo_bbox_manifest_split_cli() -> None:
 def main_check() -> None:
     test_heatmap_to_bbox_directly()
     test_heatmap_upsample_to_image()
+    test_duplicate_heatmap_policy()
     test_build_pseudo_bbox_manifest_cli()
     test_build_pseudo_bbox_manifest_upsampled_cli()
     test_split_filtering()

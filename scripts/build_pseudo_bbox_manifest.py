@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 
+DUPLICATE_POLICIES = ("error", "first", "last", "max")
+
+
 def parse_args() -> argparse.Namespace:
     """解析 heatmap -> pseudo bbox manifest 参数。"""
 
@@ -30,6 +33,15 @@ def parse_args() -> argparse.Namespace:
         default="error",
         help="How to handle manifest rows without heatmaps: error, clear bbox, or keep original bbox.",
     )
+    parser.add_argument(
+        "--duplicate-policy",
+        choices=DUPLICATE_POLICIES,
+        default="max",
+        help=(
+            "How to handle repeated image_path rows in heatmap JSONL. "
+            "Use max for AnomalyDINO per-instance rows from the same image."
+        ),
+    )
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -40,7 +52,7 @@ def main() -> None:
     if output.exists() and not args.overwrite:
         raise SystemExit(f"Output already exists: {output}. Use --overwrite to replace it.")
 
-    heatmaps = load_heatmap_cache(Path(args.heatmap_file))
+    heatmaps = load_heatmap_cache(Path(args.heatmap_file), duplicate_policy=args.duplicate_policy)
     rows, fieldnames = load_manifest_rows(Path(args.manifest))
     total_rows = len(rows)
     rows = filter_rows_by_split(rows, args.split)
@@ -132,8 +144,11 @@ def filter_rows_by_split(rows: list[dict[str, str]], split: str) -> list[dict[st
         return list(rows)
     return [row for row in rows if row.get("split") == split]
 
-def load_heatmap_cache(path: Path) -> dict[str, dict[str, Any]]:
-    """读取 heatmap JSONL，要求至少包含 image_path 和 heatmap。"""
+def load_heatmap_cache(path: Path, duplicate_policy: str = "max") -> dict[str, dict[str, Any]]:
+    """Read a heatmap JSONL cache keyed by image_path."""
+
+    if duplicate_policy not in DUPLICATE_POLICIES:
+        raise ValueError(f"Unsupported duplicate_policy: {duplicate_policy}")
 
     cache: dict[str, dict[str, Any]] = {}
     with path.open("r", encoding="utf-8") as handle:
@@ -143,15 +158,112 @@ def load_heatmap_cache(path: Path) -> dict[str, dict[str, Any]]:
                 continue
             payload = json.loads(line)
             image_path = str(payload["image_path"])
-            if image_path in cache:
-                raise ValueError(f"Duplicate image_path in {path}:{line_no}: {image_path}")
             if "heatmap" not in payload:
                 raise ValueError(f"Missing heatmap in {path}:{line_no}")
+            if image_path in cache:
+                cache[image_path] = merge_duplicate_heatmap_payload(
+                    cache[image_path],
+                    payload,
+                    policy=duplicate_policy,
+                    source=path,
+                    line_no=line_no,
+                    image_path=image_path,
+                )
+                continue
             cache[image_path] = payload
     if not cache:
         raise ValueError(f"Empty heatmap cache: {path}")
     return cache
 
+
+def merge_duplicate_heatmap_payload(
+    existing: dict[str, Any],
+    incoming: dict[str, Any],
+    policy: str,
+    source: Path,
+    line_no: int,
+    image_path: str,
+) -> dict[str, Any]:
+    """Resolve duplicate heatmaps emitted for multiple instances of one image."""
+
+    duplicate_count = int(existing.get("_duplicate_count") or 1) + 1
+    if policy == "error":
+        raise ValueError(f"Duplicate image_path in {source}:{line_no}: {image_path}")
+    if policy == "first":
+        output = dict(existing)
+        output["_duplicate_count"] = duplicate_count
+        return output
+    if policy == "last":
+        output = dict(incoming)
+        output["_duplicate_count"] = duplicate_count
+        return output
+    if policy != "max":
+        raise ValueError(f"Unsupported duplicate_policy: {policy}")
+
+    merged = dict(existing)
+    merged["heatmap"] = merge_heatmaps_max(existing["heatmap"], incoming["heatmap"], source, line_no, image_path)
+    merged["_duplicate_count"] = duplicate_count
+    for key in ("image_width", "image_height", "heatmap_width", "heatmap_height"):
+        merged[key] = merge_duplicate_metadata(existing.get(key), incoming.get(key), key, source, line_no, image_path)
+    merged["duplicate_policy"] = policy
+    return merged
+
+
+def merge_duplicate_metadata(
+    existing: Any,
+    incoming: Any,
+    key: str,
+    source: Path,
+    line_no: int,
+    image_path: str,
+) -> Any:
+    """Keep compatible metadata while rejecting conflicting image dimensions."""
+
+    if existing in (None, ""):
+        return incoming
+    if incoming in (None, ""):
+        return existing
+    if str(existing) != str(incoming):
+        raise ValueError(
+            f"Duplicate image_path in {source}:{line_no} has conflicting {key}: "
+            f"{image_path}: {existing!r} != {incoming!r}"
+        )
+    return existing
+
+
+def merge_heatmaps_max(
+    existing: Any,
+    incoming: Any,
+    source: Path,
+    line_no: int,
+    image_path: str,
+) -> list[list[float]]:
+    """Merge two same-sized heatmaps with pixel-wise max scores."""
+
+    existing_height, existing_width = heatmap_shape(existing, source, line_no, image_path)
+    incoming_height, incoming_width = heatmap_shape(incoming, source, line_no, image_path)
+    if (existing_height, existing_width) != (incoming_height, incoming_width):
+        raise ValueError(
+            f"Duplicate image_path in {source}:{line_no} has incompatible heatmap sizes: "
+            f"{image_path}: {existing_width}x{existing_height} != {incoming_width}x{incoming_height}"
+        )
+    return [
+        [max(float(a), float(b)) for a, b in zip(existing_row, incoming_row, strict=True)]
+        for existing_row, incoming_row in zip(existing, incoming, strict=True)
+    ]
+
+
+def heatmap_shape(values: Any, source: Path, line_no: int, image_path: str) -> tuple[int, int]:
+    """Validate a 2D heatmap enough to safely merge duplicates."""
+
+    if not isinstance(values, list) or not values:
+        raise ValueError(f"Invalid heatmap for {image_path} in {source}:{line_no}")
+    width = len(values[0]) if isinstance(values[0], list) else 0
+    if width == 0:
+        raise ValueError(f"Invalid heatmap for {image_path} in {source}:{line_no}")
+    if any(not isinstance(row, list) or len(row) != width for row in values):
+        raise ValueError(f"Heatmap rows must have the same width for {image_path} in {source}:{line_no}")
+    return len(values), width
 
 def heatmap_to_bbox(
     values: list[list[float]],
